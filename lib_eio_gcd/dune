@@ -1,0 +1,3 @@
+(library
+ (name eio_gcd)
+ (libraries eio logs dispatch network fmt bigstringaf ctf))
