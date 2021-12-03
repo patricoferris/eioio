@@ -29,6 +29,19 @@ val await_with_cancel :
 (** [await_with_cancel ~request fn] converts a function using a luv-style callback to one using effects.
     It sets the fibre's cancel function to cancel [request], and clears it when the operation completes. *)
 
+(* TODO: Document these or put them in a [Private] module if they shouldn't be exposed.contents
+   Currently they are only exposed for the GCD backend. *)
+
+type t
+
+module Suspended : sig
+  type 'a t
+end
+
+val enter : (t -> 'a Suspended.t -> unit) -> 'a
+
+val enqueue_thread : t -> 'a Suspended.t -> 'a -> unit
+
 (** {1 Time functions} *)
 
 val sleep_until : float -> unit

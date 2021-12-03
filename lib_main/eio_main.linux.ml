@@ -13,7 +13,7 @@ let run_luv fn =
   Eio_luv.run (fun env -> fn (env :> Eio.Stdenv.t))
 
 let run fn =
-  match Sys.getenv_opt "EIO_BACKEND" with
+  match Sys.getenv_opt "EIO_LINUX_BACKEND" with
   | Some "io-uring" -> run_io_uring fn
   | Some "luv" -> run_luv fn
   | None | Some "" ->
@@ -21,4 +21,4 @@ let run fn =
       | Ok x when has_working_uring x.release -> run_io_uring fn
       | _ -> run_luv fn
     end
-  | Some x -> Fmt.failwith "Unknown eio backend %S (from $EIO_BACKEND)" x
+  | Some x -> Fmt.failwith "Unknown eio backend %S (from $EIO_LINUX_BACKEND)" x

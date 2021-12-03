@@ -1,0 +1,5 @@
+(library
+ (name eio_gcd)
+ (public_name eio_gcd)
+ (enabled_if (= %{system} "macosx"))
+ (libraries eio gcd eio_luv eunix unix logs fmt bigstringaf ctf))
