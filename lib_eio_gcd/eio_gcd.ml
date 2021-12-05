@@ -27,6 +27,12 @@
   type t = Dispatch.Data.t ref
   let empty () = ref @@ Dispatch.Data.empty ()
 
+  (* let set buff buff' = buff := buff' *)
+
+  let concat buff buff' = buff := Dispatch.Data.concat !buff buff'
+
+  let of_bigarray buf = ref @@ Dispatch.Data.create buf
+
   let to_string buff =
     let buff = !buff in
     Cstruct.(to_string @@ of_bigarray @@ (Dispatch.Data.to_buff ~offset:0 (Dispatch.Data.size buff) buff))
@@ -138,6 +144,213 @@
     with End_of_file -> ()
  end
 
+ module Conn = struct
+    let receive ?(complete = false) (conn : Network.Connection.t) buf =
+      if complete then raise End_of_file;
+      let r = Eio_luv.enter (fun t k ->
+          Network.Connection.receive ~min:0 ~max:max_int conn ~completion:(fun data _context is_complete err ->
+            match data with
+              | None -> Eio_luv.enqueue_thread t k (Ok (0, true))
+              | Some data ->
+                let err_code = Network.Error.to_int err in
+                let res =
+                  if err_code = 0 then begin
+                    let size = Dispatch.Data.size data in
+                    Buffer.concat buf data;
+                    Ok (size, is_complete)
+                    end else Error (`Msg (string_of_int err_code))
+                  in
+                  Eio_luv.enqueue_thread t k res
+                )
+        ) in
+      match r with
+      | Ok (_, true) -> raise End_of_file
+      | Ok (got, false) ->
+        Logs.debug (fun f -> f "GOT %i" got);
+        got
+      | Error (`Msg e) ->
+        failwith ("Connection receive failed with " ^ e)
+
+    let send (conn : Network.Connection.t) buf =
+      Eio_luv.enter (fun t k ->
+          Network.Connection.send ~is_complete:true ~context:Final conn ~data:(!buf) ~completion:(fun e ->
+            match Network.Error.to_int e with
+            | 0 -> Eio_luv.enqueue_thread t k (Ok ())
+            | i -> Eio_luv.enqueue_thread t k (Error (`Msg (string_of_int i)))
+            )
+        )
+
+ end
+
+ let socket sock = object
+  inherit Eio.Flow.two_way
+
+  (* Lots of copying :/ *)
+  method read_into buff =
+    let data = Buffer.empty () in
+    let res = Conn.receive sock data in
+    let cs = Cstruct.of_bigarray @@ Dispatch.Data.to_buff ~offset:0 res !data in
+    Cstruct.blit cs 0 buff 0 res;
+    match res with
+    | 0 -> raise End_of_file
+    | got -> got
+
+  method read_methods = []
+
+  method write src =
+    let buf = Cstruct.create 4096 in
+    try
+      while true do
+        let got = Eio.Flow.read_into src buf in
+        let data = Buffer.of_bigarray @@ Cstruct.(to_bigarray (sub buf 0 got)) in
+        match Conn.send sock data with
+          | Ok () -> ()
+          | Error (`Msg m) -> failwith m
+      done
+    with End_of_file -> ()
+
+  method close =
+    Network.Connection.cancel sock
+
+   method shutdown = function
+     | `Send -> (
+      (* Deep in a connection.h file it says:
+          "In order to close a connection on the sending side (a "write close"), send
+          a context that is marked as "final" and mark is_complete. The convenience definition
+          NW_CONNECTION_FINAL_MESSAGE_CONTEXT may be used to define the default final context
+          for a connection."
+
+          TODO: I think the data argument can also be NULL, so could save the allocation here I think. *)
+      let r = Eio_luv.enter (fun t k ->
+        Network.Connection.send ~is_complete:true ~context:Final sock ~data:(Dispatch.Data.empty ()) ~completion:(fun e ->
+          match Network.Error.to_int e with
+          | 0 ->
+            Logs.debug (fun f -> f "Sending 'write close' to connection");
+            Eio_luv.enqueue_thread t k (Ok ())
+          | i ->
+            Eio_luv.enqueue_thread t k (Error (`Msg (string_of_int i)))
+        )
+      ) in match r with
+          | Ok () -> ()
+          | Error (`Msg m) -> failwith m
+     )
+     | `Receive -> failwith "shutdown receive not supported"
+     | `All ->
+       Log.warn (fun f -> f "shutdown receive not supported")
+ end
+
+
+let net_queue = lazy (Dispatch.Queue.create ~typ:Serial ())
+
+class virtual ['a] listening_socket ~backlog:_ sock = object (self)
+  inherit Eio.Net.listening_socket
+
+  method private virtual get_endpoint_addr : Network.Endpoint.t -> Eio.Net.Sockaddr.t
+
+  val connected = Eio.Semaphore.make 0
+
+  val mutable conn_sock = None;
+
+  val mutable accept_params = None
+
+  method close =
+    Network.Listener.cancel sock
+
+  method accept_sub ~sw ~on_error fn =
+    Eio.Semaphore.acquire connected;
+    Fibre.fork_sub_ignore ~sw ~on_error
+      (fun sw ->
+        Logs.debug (fun f -> f "Doinging stugffg");
+        let (conn, sockaddr) = Option.get conn_sock in
+        fn ~sw (socket conn) sockaddr
+      )
+      ~on_release:(fun () -> ())
+
+  initializer
+    let handler (state : Network.Listener.State.t) err =
+      match (Network.Error.to_int err, state) with
+        | i, _ when i <> 0 -> failwith ("Listener failed with error code: " ^ string_of_int i)
+        | _, Ready -> Log.debug (fun f -> f "Listening on port %i..." (Network.Listener.get_port sock));
+        | _, Failed -> failwith "Network listener failed"
+        | _, Invalid -> Logs.debug (fun f -> f "Listener changed to invalid state")
+        | _, Waiting ->Logs.debug (fun f -> f "Listener is waiting...")
+        | _, Cancelled -> Logs.debug (fun f -> f "Listener is cancelled")
+  in
+   let conn_handler conn =
+    Eio.Semaphore.release connected;
+    Network.Connection.retain conn;
+    Network.Connection.set_queue ~queue:(Lazy.force net_queue) conn;
+    Network.Connection.start conn;
+    let endpoint = Network.Connection.copy_endpoint conn in
+    let sockaddr = self#get_endpoint_addr endpoint in
+    conn_sock <- Some (conn, sockaddr)
+    in
+      Logs.debug (fun f -> f "Initialising socket");
+      Network.Listener.set_state_changed_handler ~handler sock;
+      Network.Listener.set_new_connection_handler ~handler:conn_handler sock;
+      Network.Listener.start sock
+
+
+end
+  let listening_socket ~backlog sock = object
+    inherit [[ `TCP ]] listening_socket ~backlog sock
+
+    method private get_endpoint_addr e =
+      match Option.get @@ Network.Endpoint.get_address e with
+        | Unix.ADDR_UNIX path         -> `Unix path
+        | Unix.ADDR_INET (host, port) -> `Tcp (host, port)
+  end
+
+   let net = object
+     inherit Eio.Net.t
+
+     method listen ~reuse_addr ~backlog ~sw:_ = function
+       | `Tcp (hostname, port) ->
+         let open Network in
+         let params = Parameters.create_tcp () in
+         let endpoint = Endpoint.create_address Unix.(ADDR_INET (hostname, port)) in
+         let _ =
+          Parameters.set_reuse_local_address params reuse_addr;
+          Parameters.set_local_endpoint ~endpoint params
+         in
+         let _ = Endpoint.release endpoint in
+         let listener = Listener.create params in
+         Listener.set_queue ~queue:(Lazy.force net_queue) listener;
+         Listener.retain listener;
+         listening_socket ~backlog listener
+       | _ -> assert false
+
+     method connect ~sw:_ = function
+       | `Tcp (hostname, port) ->
+          let open Network in
+          let params = Parameters.create_tcp () in
+          let endpoint = Endpoint.create_address Unix.(ADDR_INET (hostname, port)) in
+          let _ =
+            Parameters.set_local_endpoint ~endpoint params
+          in
+          let _ = Endpoint.release endpoint in
+          let connection = Connection.create ~params endpoint in
+          Connection.retain connection;
+          Connection.set_queue ~queue:(Lazy.force net_queue) connection;
+          let handler t k (state : Network.Connection.State.t) _ =
+            match state with
+            | Waiting -> Logs.debug (fun f -> f "Connection is waiting...")
+            | Ready ->
+              Logs.debug (fun f -> f "Connection is ready");
+              Eio_luv.enqueue_thread t k (socket connection)
+            | Invalid -> Logs.warn (fun f -> f "Invalid connection")
+            | Preparing -> Logs.debug (fun f -> f "Connection is being prepared")
+            | Failed ->
+              Logs.warn (fun f -> f "Connection failed");
+              failwith "Connection Failed"
+            | Cancelled -> Logs.debug (fun f -> f "Connection has been cancelled")
+          in
+          Eio_luv.enter (fun t k ->
+            Connection.set_state_changed_handler ~handler:(handler t k) connection;
+            Connection.start connection)
+       | _ -> assert false
+   end
+
 module Objects = struct
   type _ Eio.Generic.ty += FD : File.t Eio.Generic.ty
 
@@ -159,7 +372,10 @@ module Objects = struct
 
     method read_into buff =
       let data = Buffer.empty () in
-      match File.read ~off:(buff.Cstruct.off) ~length:(buff.len) fd data with
+      let res = File.read ~off:(buff.Cstruct.off) ~length:(buff.len) fd data in
+      let cs = Cstruct.of_bigarray @@ Dispatch.Data.to_buff ~offset:0 res !data in
+      Cstruct.blit cs 0 buff 0 res;
+      match res with
       | 0 -> raise End_of_file
       | got -> got
 
@@ -201,7 +417,7 @@ module Objects = struct
       method stdin  = (Lazy.force stdin)
       method stdout = (Lazy.force stdout)
       method stderr = failwith "unimplemented"
-      method net = failwith "unimplemented"
+      method net = net
       method domain_mgr = failwith "unimplemented"
       method clock  = failwith "unimplemented"
       method fs = failwith "unimplemented"
@@ -217,5 +433,6 @@ let run fn =
   try
     gcd_run (fun env -> fn (env :> Eio.Stdenv.t)) env
   with
-  | _ ->
-    Eio_luv.run (fun env -> fn (env :> Eio.Stdenv.t))
+  | _e ->
+    let st = Eio_luv.default_t () in
+    Eio_luv.handler st (fun env -> fn (env :> Eio.Stdenv.t)) (env :> Eio.Stdenv.t)

@@ -134,4 +134,11 @@ end
 
 (** {1 Main Loop} *)
 
+val handler : t -> (Eio.Stdenv.t -> unit) -> Eio.Stdenv.t -> unit
+(** [handler fn env] runs [fn] with the luv eventloop using [env] instead of the 
+    standard environment that {! run} uses. *)
+
+val default_t : unit -> t
+(** A default event loop configuration. *)
+
 val run : (Objects.stdenv -> unit) -> unit

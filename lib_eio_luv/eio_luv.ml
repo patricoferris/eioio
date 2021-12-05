@@ -717,3 +717,15 @@ let rec run main =
   | `Done -> ()
   | `Ex (ex, bt) -> Printexc.raise_with_backtrace ex bt
   | `Running -> failwith "Deadlock detected: no events scheduled but main function hasn't returned"
+
+let default_t () =
+  let loop = Luv.Loop.init () |> or_raise in
+  let run_q = Lf_queue.create () in
+  let async = Luv.Async.init ~loop (fun _async -> wakeup run_q) |> or_raise in
+  { loop; async; run_q }
+
+let rec run main =
+  Log.debug (fun l -> l "starting run");
+  let st = default_t () in
+  let stdenv = Objects.stdenv ~run_event_loop:run in
+  handler st main stdenv

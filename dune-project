@@ -55,7 +55,8 @@
   (ctf (= :version))
   (eio (= :version))
   (eunix (= :version))
-  gcd
+   gcd
+   network
   (luv (>= 0.5.8))
   (mdx (and (>= 1.10.0) :with-test))
   (logs (>= 0.7.0))
