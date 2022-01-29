@@ -23,6 +23,7 @@ module Buf_read = Buf_read
 module Net = Net
 module Domain_manager = Domain_manager
 module Time = Time
+module Random = Random
 module Unix_perm = Dir.Unix_perm
 module Dir = Dir
 
@@ -34,6 +35,7 @@ module Stdenv = struct
     net : Net.t;
     domain_mgr : Domain_manager.t;
     clock : Time.clock;
+    random : Random.generator;
     fs : Dir.t;
     cwd : Dir.t;
   >
@@ -44,6 +46,7 @@ module Stdenv = struct
   let net (t : <net : #Net.t; ..>) = t#net
   let domain_mgr (t : <domain_mgr : #Domain_manager.t; ..>) = t#domain_mgr
   let clock (t : <clock : #Time.clock; ..>) = t#clock
+  let random (t : <random : #Random.generator; ..>) = t#random
   let fs (t : <fs : #Dir.t; ..>) = t#fs
   let cwd (t : <cwd : #Dir.t; ..>) = t#cwd
 end
@@ -53,7 +56,7 @@ module Private = struct
 
   module Effects = struct
     type 'a enqueue = 'a Suspend.enqueue
-    type _ eff += 
+    type _ eff +=
       | Suspend = Suspend.Suspend
       | Fork = Fibre.Fork
       | Get_context = Cancel.Get_context

@@ -788,6 +788,18 @@ module Time : sig
       raising exception [Timeout]. *)
 end
 
+module Random : sig
+  class virtual generator : object
+    method virtual fill : Cstruct.t -> unit
+  end
+
+  val generate : #generator -> int -> Cstruct.t
+  (** [generate g n] creates a random buffer of length [n]. *)
+
+  val fill : #generator -> Cstruct.t -> unit
+  (** [fill g buff] takes an existing buffer and fills it with random bytes. *)
+end
+
 module Unix_perm : sig
   type t = int
   (** This is the same as {!Unix.file_perm}, but avoids a dependency on [Unix]. *)
@@ -876,6 +888,7 @@ module Stdenv : sig
     net : Net.t;
     domain_mgr : Domain_manager.t;
     clock : Time.clock;
+    random : Random.generator;
     fs : Dir.t;
     cwd : Dir.t;
   >
@@ -887,6 +900,7 @@ module Stdenv : sig
   val net : <net : #Net.t as 'a; ..> -> 'a
   val domain_mgr : <domain_mgr : #Domain_manager.t as 'a; ..> -> 'a
   val clock : <clock : #Time.clock as 'a; ..> -> 'a
+  val random : <random : #Random.generator as 'a; ..> -> 'a
 
   val cwd : <cwd : #Dir.t as 'a; ..> -> 'a
   (** [cwd t] is the current working directory of the process (this may change

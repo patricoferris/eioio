@@ -76,6 +76,11 @@ module File : sig
 
 end
 
+module Random : sig
+  val fill : Luv.Buffer.t -> unit
+  (** Wraps {!Luv.Random.random} *)
+end
+
 module Handle : sig
   type 'a t
 
@@ -111,6 +116,7 @@ module Objects : sig
     net : Eio.Net.t;
     domain_mgr : Eio.Domain_manager.t;
     clock : Eio.Time.clock;
+    random : Eio.Random.generator;
     fs : Eio.Dir.t;
     cwd : Eio.Dir.t;
   >

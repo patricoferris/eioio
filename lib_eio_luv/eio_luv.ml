@@ -228,6 +228,13 @@ module File = struct
     await_with_cancel ~request (fun loop -> Luv.File.mkdir ~loop ~request ~mode path)
 end
 
+module Random = struct
+
+  let fill buf =
+    let request = Luv.Random.Request.make () in
+    await_with_cancel ~request (fun loop -> Luv.Random.random ~loop ~request buf) |> or_raise
+end
+
 module Stream = struct
   type 'a t = [`Stream of 'a] Handle.t
 
@@ -256,7 +263,7 @@ module Stream = struct
     | xs -> xs
 
   let rec write t bufs =
-    let err, n = 
+    let err, n =
       (* note: libuv doesn't seem to allow cancelling stream writes *)
       enter (fun st k ->
           Luv.Stream.write (Handle.get "write_stream" t) bufs @@ fun err n ->
@@ -493,6 +500,7 @@ module Objects = struct
     net : Eio.Net.t;
     domain_mgr : Eio.Domain_manager.t;
     clock : Eio.Time.clock;
+    random : Eio.Random.generator;
     fs : Eio.Dir.t;
     cwd : Eio.Dir.t;
   >
@@ -539,6 +547,14 @@ module Objects = struct
 
     method now = Unix.gettimeofday ()
     method sleep_until = sleep_until
+  end
+
+  let random = object
+    inherit Eio.Random.generator
+
+    method fill buf =
+      let ba = Cstruct.to_bigarray buf in
+      Random.fill ba
   end
 
   (* Warning: libuv doesn't provide [openat], etc, and so there is probably no way to make this safe.
@@ -629,10 +645,11 @@ module Objects = struct
       method net = net
       method domain_mgr = domain_mgr ~run_event_loop
       method clock = clock
+      method random = random
       method fs = (fs :> Eio.Dir.t)
       method cwd = (cwd :> Eio.Dir.t)
     end
-end  
+end
 
 let rec wakeup run_q =
   match Lf_queue.pop run_q with
@@ -654,13 +671,13 @@ let rec run main =
       effc = fun (type a) (e : a eff) ->
         match e with
         | Await fn ->
-          Some (fun k -> 
+          Some (fun k ->
             let k = { Suspended.k; fibre } in
             fn loop fibre (enqueue_thread st k))
         | Eio.Private.Effects.Trace ->
           Some (fun k -> continue k Eio_utils.Trace.default_traceln)
         | Eio.Private.Effects.Fork (new_fibre, f) ->
-          Some (fun k -> 
+          Some (fun k ->
             let k = { Suspended.k; fibre } in
             enqueue_at_head st k ();
             fork ~new_fibre (fun () ->
@@ -680,7 +697,7 @@ let rec run main =
             | None -> fn st { Suspended.k; fibre }
           )
         | Eio.Private.Effects.Suspend fn ->
-          Some (fun k -> 
+          Some (fun k ->
               let k = { Suspended.k; fibre } in
               fn fibre (enqueue_result_thread st k)
             )
