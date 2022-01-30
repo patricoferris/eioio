@@ -693,10 +693,17 @@ module Net : sig
   end
 
   module Sockaddr : sig
-    type t = [
+    type conn = [
       | `Unix of string
       | `Tcp of Ipaddr.v4v6 * int
     ]
+
+    type dgram = [
+      | `Unix of string
+      | `Udp of Ipaddr.v4v6 * int
+    ]
+
+    type t = [ conn | dgram ]
 
     val pp : Format.formatter -> t -> unit
   end
@@ -725,11 +732,13 @@ module Net : sig
       [flow] will be closed automatically when the sub-switch is finished, if not already closed by then. *)
 
   class virtual t : object
-    method virtual listen : reuse_addr:bool -> reuse_port:bool -> backlog:int -> sw:Switch.t -> Sockaddr.t -> listening_socket
-    method virtual connect : sw:Switch.t -> Sockaddr.t -> <Flow.two_way; Flow.close>
+    method virtual listen : reuse_addr:bool -> reuse_port:bool -> backlog:int -> sw:Switch.t -> Sockaddr.conn -> listening_socket
+    method virtual connect : sw:Switch.t -> Sockaddr.conn -> <Flow.two_way; Flow.close>
+    method virtual init : sw:Switch.t -> Sockaddr.dgram -> <Flow.two_way>
+    method virtual resolve : sw:Switch.t -> Uri.t -> Sockaddr.t
   end
 
-  val listen : ?reuse_addr:bool -> ?reuse_port:bool -> backlog:int -> sw:Switch.t -> #t -> Sockaddr.t -> listening_socket
+  val listen : ?reuse_addr:bool -> ?reuse_port:bool -> backlog:int -> sw:Switch.t -> #t -> Sockaddr.conn -> listening_socket
   (** [listen ~sw ~backlog t addr] is a new listening socket bound to local address [addr].
       The new socket will be closed when [sw] finishes, unless closed manually first.
       For (non-abstract) Unix domain sockets, the path will be removed afterwards.
@@ -738,9 +747,15 @@ module Net : sig
                         For Unix paths, also remove any stale left-over socket.
       @param reuse_port Set the [Unix.SO_REUSEPORT] socket option. *)
 
-  val connect : sw:Switch.t -> #t -> Sockaddr.t -> <Flow.two_way; Flow.close>
+  val connect : sw:Switch.t -> #t -> Sockaddr.conn -> <Flow.two_way; Flow.close>
   (** [connect ~sw t addr] is a new socket connected to remote address [addr].
       The new socket will be closed when [sw] finishes, unless closed manually first. *)
+
+  val init : sw:Switch.t -> #t -> Sockaddr.dgram -> <Flow.two_way>
+  (** [init ~sw t addr] initialises the datagram flow. This is a connectionless flow. *)
+
+  val resolve : sw:Switch.t -> #t -> Uri.t -> Sockaddr.t
+  (** [resolve ~sw t uri] resolves the URI to an endpoint. *)
 end
 
 module Domain_manager : sig

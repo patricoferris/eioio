@@ -276,6 +276,33 @@ module Stream = struct
     | bufs -> write t bufs
 end
 
+module Datagram = struct
+  type 'a t = [`UDP] Handle.t
+
+  let rec recv (sock:'a t) buf =
+    let r = enter (fun t k ->
+        Fibre_context.set_cancel_fn k.fibre (fun ex ->
+            Luv.UDP.recv_stop (Handle.get "recv_into:cancel" sock) |> or_raise;
+            enqueue_failed_thread t k ex
+          );
+        Luv.UDP.recv_start (Handle.get "recv_start" sock) ~allocate:(fun _ -> buf) (fun r ->
+            Luv.UDP.recv_stop (Handle.get "recv_stop" sock) |> or_raise;
+            if Fibre_context.clear_cancel_fn k.fibre then enqueue_thread t k r
+          )
+      ) in
+    match r with
+    | Ok (buf', _sockaddr, _recv_flags) ->
+      let len = Luv.Buffer.size buf' in
+      if len > 0 then len
+      else recv sock buf       (* Luv uses a zero-length read to mean EINTR! *)
+    | Error `EOF -> raise End_of_file
+    | Error (`ECONNRESET as e) -> raise (Eio.Net.Connection_reset (Luv_error e))
+    | Error x -> raise (Luv_error x)
+
+  let send t bufs sockaddr =
+    await_exn (fun _loop _fibre -> Luv.UDP.send (Handle.get "send" t) bufs sockaddr)
+end
+
 module Poll = struct
   let await_readable t (k:unit Suspended.t) fd =
     let poll = Luv.Poll.init ~loop:t.loop (Obj.magic fd) |> or_raise in
@@ -359,6 +386,36 @@ module Objects = struct
 
   let source fd = (flow fd :> source)
   let sink   fd = (flow fd :> sink)
+
+  let datagram sock addr = object
+    inherit Eio.Flow.two_way
+
+    method read_into buf =
+      let buf = Cstruct.to_bigarray buf in
+      Datagram.recv sock buf
+
+    method read_methods = []
+
+    method write src =
+      let buf = Luv.Buffer.create 4096 in
+      try
+        while true do
+          let got = Eio.Flow.read_into src (Cstruct.of_bigarray buf) in
+          let buf' = Luv.Buffer.sub buf ~offset:0 ~length:got in
+          print_endline @@ Option.get @@ Luv.Sockaddr.to_string addr;
+          Datagram.send sock [buf'] addr
+        done
+      with End_of_file -> ()
+
+    (* You can close these though? *)
+    (* method close =
+      Handle.close sock *)
+
+    method shutdown = function
+      | `Send -> failwith "shutdown receive not supported"
+      | `Receive -> failwith "shutdown receive not supported"
+      | `All -> failwith "shutdown receive not supported"
+  end
 
   let socket sock = object
     inherit Eio.Flow.two_way
@@ -454,6 +511,13 @@ module Objects = struct
       `Unix (Luv.Pipe.getpeername (Handle.get "get_client_addr" c) |> or_raise)
   end
 
+  let luv_addr_info_to_sockaddr (info : Luv.DNS.Addr_info.t) =
+    let addr = info.addr in
+    match info.protocol with
+      | 6 -> `Tcp (luv_ip_addr_to_eio addr)
+      | 17 -> `Udp (luv_ip_addr_to_eio addr)
+      | _ -> failwith "Unknown protocol number"
+
   let net = object
     inherit Eio.Net.t
 
@@ -491,6 +555,21 @@ module Objects = struct
         let sock = Luv.Pipe.init ~loop:(get_loop ()) () |> or_raise |> Handle.of_luv ~sw in
         await_exn (fun _loop _fibre -> Luv.Pipe.connect (Handle.get "connect" sock) path);
         socket sock
+
+    method init ~sw = function
+      | `Udp (host, port) ->
+        let domain = match Eio.Net.Ipaddr.classify host with `V4 _ -> `INET | _ -> `INET6 in
+        let sock = Luv.UDP.init ~domain ~loop:(get_loop ()) () |> or_raise |> Handle.of_luv ~sw in
+        let addr = luv_addr_of_eio host port in
+        datagram sock addr
+      | _ -> failwith "TODO"
+
+    method resolve ~sw:_ uri =
+      let node = Uri.to_string uri in
+      let addrs = await_exn (fun loop _fibre -> Luv.DNS.getaddrinfo ~loop ~family:`INET ~node ()) in
+      match addrs with
+        | info :: _ -> luv_addr_info_to_sockaddr info
+        | [] -> failwith "Err"
   end
 
   type stdenv = <
