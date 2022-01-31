@@ -109,23 +109,24 @@
       Log.debug (fun f -> f "gcd read");
       let read = ref 0 in
       Eio_luv.enter (fun t k ->
-          Dispatch.Io.with_read ~off ~length ~queue:(Lazy.force io_queue) (get "with_read" fd) ~f:(fun ~err ~finished r ->
-            let size = Dispatch.Data.size r in
-              if err = 0 && finished then begin
-                if size = 0 then Eio_luv.enqueue_thread t k !read
-                else (
-                  read := !read + size;
-                  buf := Dispatch.Data.concat r !buf;
-                  Eio_luv.enqueue_thread t k !read
-                )
-              end
-              else if err <> 0 then failwith "err"
-              else begin
-                read := !read + size;
-                buf := Dispatch.Data.concat r !buf
-              end
+        Dispatch.Io.with_read ~off ~length ~queue:(Lazy.force io_queue) (get "with_read" fd) ~f:(fun ~err ~finished r ->
+          let size = Dispatch.Data.size r in
+          if err = 0 && finished then begin
+            if size = 0 then Eio_luv.enqueue_thread t k !read
+            else (
+              read := !read + size;
+              buf := Dispatch.Data.concat r !buf;
+              Eio_luv.enqueue_thread t k !read
             )
+          end
+          else if err <> 0 then failwith "err"
+          else begin
+            read := !read + size;
+            buf := Dispatch.Data.concat r !buf
+          end
         )
+      )
+
    let write fd (bufs : Buffer.t) =
     Eio_luv.enter (fun t k ->
         Dispatch.Io.with_write ~off:0 ~data:(!bufs) ~queue:(Lazy.force io_queue) (get "with_write" fd) ~f:(fun ~err:_ ~finished _remaining ->
@@ -145,25 +146,23 @@
  end
 
  module Conn = struct
-    let receive ?(complete = false) (conn : Network.Connection.t) buf =
-      if complete then raise End_of_file;
+    let receive (conn : Network.Connection.t) buf =
       let r = Eio_luv.enter (fun t k ->
-          Network.Connection.receive ~min:0 ~max:max_int conn ~completion:(fun data _context is_complete err ->
-            match data with
-              | None -> Eio_luv.enqueue_thread t k (Ok (0, true))
-              | Some data ->
-                let err_code = Network.Error.to_int err in
-                let res =
-                  if err_code = 0 then begin
-                    let size = Dispatch.Data.size data in
-                    Buffer.concat buf data;
-                    Ok (size, is_complete)
-                    end else Error (`Msg (string_of_int err_code))
-                  in
-                  Eio_luv.enqueue_thread t k res
-                )
-        ) in
-      match r with
+        Network.Connection.receive ~min:0 ~max:max_int conn ~completion:(fun data _context is_complete err ->
+          match data with
+            | None -> Eio_luv.enqueue_thread t k (Ok (0, true))
+            | Some data ->
+              let err_code = Network.Error.to_int err in
+              let res =
+                if err_code = 0 then begin
+                  let size = Dispatch.Data.size data in
+                  Buffer.concat buf data;
+                  Ok (size, is_complete)
+                  end else Error (`Msg (string_of_int err_code))
+                in
+              Eio_luv.enqueue_thread t k res
+        )
+      ) in match r with
       | Ok (_, true) -> raise End_of_file
       | Ok (got, false) ->
         Logs.debug (fun f -> f "GOT %i" got);
@@ -173,12 +172,12 @@
 
     let send (conn : Network.Connection.t) buf =
       Eio_luv.enter (fun t k ->
-          Network.Connection.send ~is_complete:true ~context:Final conn ~data:(!buf) ~completion:(fun e ->
-            match Network.Error.to_int e with
-            | 0 -> Eio_luv.enqueue_thread t k (Ok ())
-            | i -> Eio_luv.enqueue_thread t k (Error (`Msg (string_of_int i)))
-            )
+        Network.Connection.send ~is_complete:true ~context:Final conn ~data:(!buf) ~completion:(fun e ->
+          match Network.Error.to_int e with
+          | 0 -> Eio_luv.enqueue_thread t k (Ok ())
+          | i -> Eio_luv.enqueue_thread t k (Error (`Msg (string_of_int i)))
         )
+      )
 
  end
 
@@ -326,6 +325,7 @@ end
           let params = Parameters.create_tcp () in
           let endpoint = Endpoint.create_address Unix.(ADDR_INET (hostname, port)) in
           let _ =
+            Parameters.set_reuse_local_address params true;
             Parameters.set_local_endpoint ~endpoint params
           in
           let _ = Endpoint.release endpoint in

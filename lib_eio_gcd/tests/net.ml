@@ -10,7 +10,8 @@ let run (fn : net:Eio.Net.t -> Switch.t -> unit) =
   let net = Eio.Stdenv.net env in
   Switch.run (fn ~net)
 
-let addr = `Tcp (Unix.inet_addr_of_string "::1", int_of_string @@ Sys.argv.(1))
+(* let addr = `Tcp (Unix.inet_addr_of_string "::1", int_of_string @@ Sys.argv.(1)) *)
+let addr = `Tcp (Unix.inet_addr_loopback, int_of_string @@ Sys.argv.(1))
 
 let read_all flow =
   let b = Buffer.create 100 in
@@ -47,10 +48,10 @@ let test_address addr ~net sw =
   let server = Eio.Net.listen net ~sw ~reuse_addr:true ~backlog:5 addr in
   Fibre.both
     (fun () -> run_server ~sw server)
-    (fun () -> ()
-      (* run_client ~sw ~net ~addr;
+    (fun () ->
+      run_client ~sw ~net ~addr;
       traceln "Client finished - cancelling server";
-      raise Graceful_shutdown *)
+      raise Graceful_shutdown
     )
 
 let () = run (test_address addr)
