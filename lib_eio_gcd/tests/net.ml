@@ -11,7 +11,7 @@ let run (fn : net:Eio.Net.t -> Switch.t -> unit) =
   Switch.run (fn ~net)
 
 (* let addr = `Tcp (Unix.inet_addr_of_string "::1", int_of_string @@ Sys.argv.(1)) *)
-let addr = `Tcp (Unix.inet_addr_loopback, int_of_string @@ Sys.argv.(1))
+let addr = `Tcp (Eio.Net.Ipaddr.V4.loopback, int_of_string @@ Sys.argv.(1))
 
 let read_all flow =
   let b = Buffer.create 100 in

@@ -255,15 +255,11 @@ class virtual ['a] listening_socket ~backlog:_ sock = object (self)
   method close =
     Network.Listener.cancel sock
 
-  method accept_sub ~sw ~on_error fn =
+  method accept ~sw =
     Eio.Semaphore.acquire connected;
-    Fibre.fork_sub_ignore ~sw ~on_error
-      (fun sw ->
-        Logs.debug (fun f -> f "Doinging stugffg");
-        let (conn, sockaddr) = Option.get conn_sock in
-        fn ~sw (socket conn) sockaddr
-      )
-      ~on_release:(fun () -> ())
+    Switch.on_release sw (fun () -> (* TODO *) ());
+    let (conn, sockaddr) = Option.get conn_sock in
+    (socket conn), sockaddr
 
   initializer
     let handler (state : Network.Listener.State.t) err =
@@ -297,17 +293,17 @@ end
     method private get_endpoint_addr e =
       match Option.get @@ Network.Endpoint.get_address e with
         | Unix.ADDR_UNIX path         -> `Unix path
-        | Unix.ADDR_INET (host, port) -> `Tcp (host, port)
-  end
+        | Unix.ADDR_INET (host, port) -> `Tcp (Eio_unix.Ipaddr.of_unix host, port) (* TODO: Remove unix *)
+    end
 
    let net = object
      inherit Eio.Net.t
 
-     method listen ~reuse_addr ~backlog ~sw:_ = function
+     method listen ~reuse_addr ~reuse_port:_ ~backlog ~sw:_ = function
        | `Tcp (hostname, port) ->
          let open Network in
          let params = Parameters.create_tcp () in
-         let endpoint = Endpoint.create_address Unix.(ADDR_INET (hostname, port)) in
+         let endpoint = Endpoint.create_address Unix.(ADDR_INET (Eio_unix.Ipaddr.to_unix hostname, port)) in
          let _ =
           Parameters.set_reuse_local_address params reuse_addr;
           Parameters.set_local_endpoint ~endpoint params
@@ -323,7 +319,7 @@ end
        | `Tcp (hostname, port) ->
           let open Network in
           let params = Parameters.create_tcp () in
-          let endpoint = Endpoint.create_address Unix.(ADDR_INET (hostname, port)) in
+          let endpoint = Endpoint.create_address Unix.(ADDR_INET (Eio_unix.Ipaddr.to_unix hostname, port)) in
           let _ =
             Parameters.set_reuse_local_address params true;
             Parameters.set_local_endpoint ~endpoint params
@@ -385,10 +381,11 @@ module Objects = struct
       match Eio.Generic.probe src FD with
       | Some src -> File.fast_copy src fd
       | None ->
-        let chunk = Cstruct.create 1024 in
+        let chunk = Cstruct.create 4096 in
         try
           while true do
-            let _got = Eio.Flow.read_into src chunk in
+            let got = Eio.Flow.read_into src chunk in
+            let chunk = Cstruct.sub chunk 0 got in
             File.write fd (ref @@ Dispatch.Data.create (Cstruct.to_bigarray chunk))
           done
         with End_of_file -> ()
