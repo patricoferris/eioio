@@ -438,6 +438,7 @@ let rec schedule ({run_q; sleep_q; mem_q; uring; _} as st) : [`Exit_scheduler] =
   | Some Failed_thread (k, ex) -> Suspended.discontinue k ex
   | Some IO -> (* Note: be sure to re-inject the IO task before continuing! *)
     (* This is not a fair scheduler: timers always run before all other IO *)
+    if not (Lf_queue.is_empty run_q) then (Lf_queue.push run_q IO; schedule st) else
     let now = Unix.gettimeofday () in
     match Zzz.pop ~now sleep_q with
     | `Due k ->
