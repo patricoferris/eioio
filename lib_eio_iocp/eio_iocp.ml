@@ -33,20 +33,19 @@ type sink   = < Eio.Flow.sink  ; Eio.Flow.close >
 
 type io_job =
   | Job_no_cancel : int Suspended.t -> io_job
-  | Job : int Suspended.t -> io_job
+  | Job : ([`R | `W] * int Suspended.t) -> io_job
 
 type runnable =
   | Thread : 'a Suspended.t * 'a -> runnable
   | Failed_thread : 'a Suspended.t * exn -> runnable
-
-type _ Effect.t += Close : Iocp.Handle.t -> int Effect.t
 
 module FD = struct
   type t = {
     seekable : bool;
     close_unix : bool;                          (* Whether closing this also closes the underlying FD. *)
     mutable release_hook : Eio.Switch.hook;     (* Use this on close to remove switch's [on_release] hook. *)
-    mutable fd : [`Open of Iocp.Handle.t | `Closed]
+    mutable fd : [`Open of Iocp.Handle.t | `Closed];
+    mutable off : Optint.Int63.t; (* HMMMMMM.... *)
   }
 
   let get op = function
@@ -63,10 +62,8 @@ module FD = struct
     t.fd <- `Closed;
     Eio.Switch.remove_hook t.release_hook;
     if t.close_unix then (
-      let res = perform (Close fd) in
+      let () = Eio_unix.run_in_systhread (fun () -> Unix.close (fd :> Unix.file_descr)) in
       Log.debug (fun l -> l "close: woken up");
-      if res < 0 then
-        raise (Unix.Unix_error (EUNKNOWNERR res, "close", string_of_int (Obj.magic fd : int)))
     )
 
   let ensure_closed t =
@@ -87,7 +84,7 @@ module FD = struct
       (fd :> Unix.file_descr)
 
   let of_unix_no_hook ~seekable ~close_unix fd =
-    { seekable; close_unix; fd = `Open fd; release_hook = Eio.Switch.null_hook }
+    { seekable; close_unix; fd = `Open fd; release_hook = Eio.Switch.null_hook; off = Optint.Int63.zero }
 
   let of_unix ~sw ~seekable ~close_unix fd =
     let t = of_unix_no_hook ~seekable ~close_unix fd in
@@ -95,10 +92,9 @@ module FD = struct
     t
 
   let placeholder ~seekable ~close_unix =
-    { seekable; close_unix; fd = `Closed; release_hook = Eio.Switch.null_hook }
+    { seekable; close_unix; fd = `Closed; release_hook = Eio.Switch.null_hook; off = Optint.Int63.zero }
 
-  let uring_file_offset t =
-    if t.seekable then Optint.Int63.minus_one else Optint.Int63.zero
+  let uring_file_offset t = Optint.Int63.zero
 
   let pp f t =
     match t.fd with
@@ -164,30 +160,20 @@ let with_cancel_hook ~action st fn =
 
 let rec enqueue_read args st action =
   let (file_offset,fd,buf,len) = args in
-  let file_offset =
-    match file_offset with
-    | Some x -> x
-    | None -> FD.uring_file_offset fd
-  in
   Ctf.label "read";
   let retry = with_cancel_hook ~action st (fun () ->
       st.jobs <- st.jobs + 1;
-      Iocp.read st.iocp ~file_offset ~off:0 ~len (FD.get "read" fd) buf (Job action))
+      Iocp.read st.iocp ~file_offset ~off:0 ~len (FD.get "read" fd) buf (Job (`R, action)))
   in
   if retry then (* wait until an sqe is available *)
     Queue.push (fun st -> enqueue_read args st action) st.io_q
 
 let rec enqueue_write args st action =
   let (file_offset,fd,buf,len) = args in
-  let file_offset =
-    match file_offset with
-    | Some x -> x
-    | None -> FD.uring_file_offset fd
-  in
   Ctf.label "write";
   let retry = with_cancel_hook ~action st (fun () ->
       st.jobs <- st.jobs + 1;
-      Iocp.write st.iocp ~file_offset ~off:0 ~len (FD.get "write" fd) buf (Job action)
+      Iocp.write st.iocp ~file_offset ~off:0 ~len (FD.get "write" fd) buf (Job (`W, action))
     )
   in
   if retry then (* wait until an sqe is available *)
@@ -195,23 +181,32 @@ let rec enqueue_write args st action =
 
 module Low_level = struct
   let read ?file_offset fd buf len =
-    let res = enter (enqueue_read (file_offset, fd, buf, len)) in
-    Log.debug (fun l -> l "readv: woken up after read");
+    let fo = match file_offset with
+      | Some x -> x
+      | None -> fd.FD.off
+    in
+    let res = enter (enqueue_read (fo, fd, buf, len)) in
+    Log.debug (fun l -> l "readv: woken up after read %i" res);
     if res < 0 then (
       raise (Unix.Unix_error (EUNKNOWNERR res, "read", ""))
     ) else if res = 0 then (
       raise End_of_file
     ) else (
+      if file_offset = None then fd.off <- Optint.Int63.(add fd.off (of_int res));
       res
     )
 
   let write ?file_offset fd buf len =
-    let res = enter (enqueue_write (file_offset, fd, buf, len)) in
+    let fo = match file_offset with
+      | Some x -> x
+      | None -> fd.FD.off
+    in
+    let res = enter (enqueue_write (fo, fd, buf, len)) in
     Log.debug (fun l -> l "writev: woken up after write");
     if res < 0 then (
       raise (Unix.Unix_error (EUNKNOWNERR res, "writev", ""))
     ) else (
-      ()
+      fd.off <- Optint.Int63.(add fd.off (of_int res))
     )
 end
 
@@ -228,7 +223,7 @@ let flow fd =
       | _ -> None
 
     method read_into buf =
-      Low_level.read fd buf max_int
+      Low_level.read fd buf (Cstruct.length buf)
 
     method read_methods = []
 
@@ -238,7 +233,7 @@ let flow fd =
         while true do
           let got = Eio.Flow.read src buf in
           let sub = Cstruct.sub buf 0 got in
-          Low_level.write fd sub max_int
+          Low_level.write fd sub got
         done
       with End_of_file -> ()
 
@@ -287,52 +282,40 @@ let flow fd =
       | `All -> Unix.SHUTDOWN_ALL
   end
 
-(* class dir fd = object
+class dir fd = object
   inherit Eio.Dir.t
 
-  val resolve_flags = Uring.Resolve.beneath
-
   method open_in ~sw path =
-    let fd = Low_level.openat2 ~sw ?dir:fd path
-        ~access:`R
-        ~flags:Uring.Open_flags.cloexec
-        ~perm:0
-        ~resolve:resolve_flags
-    in
-    (flow fd :> <Eio.Flow.source; Eio.Flow.close>)
+    let fd = Eio_unix.run_in_systhread (fun () -> Iocp.Handle.openfile path [ O_RDONLY ] 0) in
+    (flow (FD.of_unix ~sw ~seekable:true ~close_unix:true fd) :> <Eio.Flow.source; Eio.Flow.close>)
 
-  method open_out ~sw ~append ~create path =
+  method open_out ~sw ~append:_ ~create path =
     let perm, flags =
+      let open Unix in
       match create with
-      | `Never            -> 0,    Uring.Open_flags.empty
-      | `If_missing  perm -> perm, Uring.Open_flags.creat
-      | `Or_truncate perm -> perm, Uring.Open_flags.(creat + trunc)
-      | `Exclusive   perm -> perm, Uring.Open_flags.(creat + excl)
+      | `Never            -> 0,    []
+      | `If_missing  perm -> perm, [ O_WRONLY; O_CREAT ]
+      | `Or_truncate perm -> perm, [ O_WRONLY; O_CREAT; O_TRUNC ]
+      | `Exclusive   perm -> perm, [ O_WRONLY; O_CREAT; O_EXCL ]
     in
-    let flags = if append then Uring.Open_flags.(flags + append) else flags in
-    let fd = Low_level.openat2 ~sw ?dir:fd path
-        ~access:`RW
-        ~flags:Uring.Open_flags.(cloexec + flags)
-        ~perm
-        ~resolve:resolve_flags
-    in
-    (flow fd :> <Eio.Dir.rw; Eio.Flow.close>)
+    let fd = Eio_unix.run_in_systhread (fun () -> Iocp.Handle.openfile path flags perm) in
+    (flow (FD.of_unix ~sw ~seekable:true ~close_unix:true fd) :> <Eio.Dir.rw; Eio.Flow.close>)
 
   method open_dir ~sw path =
-    let fd = Low_level.openat2 ~sw ~seekable:false ?dir:fd path
-        ~access:`R
-        ~flags:Uring.Open_flags.(cloexec + path + directory)
-        ~perm:0
-        ~resolve:resolve_flags
-    in
-    (new dir (Some fd) :> <Eio.Dir.t; Eio.Flow.close>)
+    let fd = Eio_unix.run_in_systhread (fun () -> Iocp.Handle.openfile path [ O_RDONLY ] 0) in
+    (new dir (Some (FD.of_unix ~sw ~seekable:true ~close_unix:true fd)) :> <Eio.Dir.t; Eio.Flow.close>)
 
-  method mkdir ~perm path =
-    Low_level.mkdir_beneath ~perm ?dir:fd path
+  method mkdir ~perm:_ _path = ()
+
+  method read_dir path = Sys.readdir path |> Array.to_list
 
   method close =
     FD.close (Option.get fd)
-end *)
+end
+
+let fs = object
+  inherit dir None
+end
 
 type stdenv = <
   stdin  : source;
@@ -350,7 +333,7 @@ let stdenv () =
   let stdin = lazy  ((stdflow Unix.stdin) :> source) in 
   let stdout = lazy ((stdflow Unix.stdout) :> sink) in 
   let stderr = lazy ((stdflow Unix.stderr) :> sink) in 
-  (* let cwd = new dir None in *)
+  let cwd = new dir None in
   object (_ : stdenv)
     method stdin  = Lazy.force stdin
     method stdout = Lazy.force stdout
@@ -358,8 +341,8 @@ let stdenv () =
     method net = Obj.magic ()
     method domain_mgr = Obj.magic ()
     method clock = Obj.magic ()
-    method fs = Obj.magic ()
-    method cwd = Obj.magic ()
+    method fs = (fs :> Eio.Dir.t)
+    method cwd = (cwd :> Eio.Dir.t)
     method secure_random = Obj.magic ()
   end
 
@@ -401,10 +384,13 @@ let rec schedule t =
     Logs.debug (fun f -> f "Handle completion, jobs left: %i" st.jobs);
     st.jobs <- st.jobs - 1;
     match runnable with
-    | Job k ->
+    | Job (kind, k) ->
       (* clear_cancel k; *)
+      Logs.debug (fun f -> f "Kind %s" (if kind = `R then "READ" else "WRITE"));
       begin match Fiber_context.get_error k.fiber with
-        | None -> Suspended.continue k result
+        | None ->
+          Logs.debug (fun f -> f "Result %i" result);
+          Suspended.continue k result
         | Some e ->
           (* If cancelled, report that instead.
              Should we only do this on error, to avoid losing the return value?
