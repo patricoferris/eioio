@@ -48,6 +48,16 @@
   (logs (>= 0.7.0))
   (fmt (>= 0.8.9))))
 (package
+ (name eio_iocp)
+ (synopsis "Eio implementation for Windows using IOCP")
+ (description "An eio implementation for Windows, using input/output completion ports (IOCP).")
+ (depends
+  base-domains
+  (eio (= :version))
+  iocp
+  (logs (>= 0.7.0))
+  (fmt (>= 0.8.9))))
+(package
  (name eio_main)
  (synopsis "Effect-based direct-style IO mainloop for OCaml")
  (description "Selects an appropriate Eio backend for the current platform.")

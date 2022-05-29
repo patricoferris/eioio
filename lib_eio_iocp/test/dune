@@ -1,0 +1,3 @@
+(executables
+ (names cat_iocp noio_iocp)
+ (libraries fmt.tty logs.fmt eio_iocp))
