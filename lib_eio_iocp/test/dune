@@ -1,3 +1,3 @@
 (executables
- (names copy_iocp pipe_iocp)
+ (names copy_iocp pipe_iocp net_iocp)
  (libraries fmt.tty logs.fmt eio_iocp))

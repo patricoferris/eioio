@@ -1146,6 +1146,7 @@ let pipe sw =
 let monitor_event_fd t =
   let buf = Cstruct.create 8 in
   while true do
+    Log.debug (fun f -> f "performing low level read");
     let got = Low_level.readv t.eventfd [buf] in
     Log.debug (fun f -> f "Received wakeup on eventfd %a" FD.pp t.eventfd);
     assert (got = 8);

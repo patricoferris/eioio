@@ -32,8 +32,7 @@ type source = < Eio.Flow.source; Eio.Flow.close >
 type sink   = < Eio.Flow.sink  ; Eio.Flow.close >
 
 type io_job =
-  | Job_no_cancel : int Suspended.t -> io_job
-  | Job : ([`R | `W] * int Suspended.t) -> io_job
+  | Job : ([`R | `W | `C | `A] * int Suspended.t) -> io_job
 
 type runnable =
   | Thread : 'a Suspended.t * 'a -> runnable
@@ -69,11 +68,6 @@ module FD = struct
   let ensure_closed t =
     if is_open t then close t
 
-  let is_seekable fd =
-    match Unix.lseek fd 0 Unix.SEEK_CUR with
-    | (_ : int) -> true
-    | exception Unix.Unix_error(Unix.ESPIPE, "lseek", "") -> false
-
   let to_unix op t =
     let fd = get "to_unix" t in
     match op with
@@ -93,8 +87,6 @@ module FD = struct
 
   let placeholder ~seekable ~close_unix =
     { seekable; close_unix; fd = `Closed; release_hook = Eio.Switch.null_hook; off = Optint.Int63.zero }
-
-  let uring_file_offset t = Optint.Int63.zero
 
   let pp f t =
     match t.fd with
@@ -136,34 +128,37 @@ let wakeup t =
   | ()           -> Mutex.unlock t.eventfd_mutex
   | exception ex -> Mutex.unlock t.eventfd_mutex; raise ex
 
-let cancel _ = () (* TODO *)
+let cancel ol fd =
+  try Iocp.Handle.cancel (FD.get "cancel" fd) ol with Invalid_argument _ -> ()
 
 let enqueue_thread st k x =
   Logs.debug (fun f -> f "Enqueue thread");
   Lf_queue.push st.run_q (Thread (k, x));
-  wakeup st
+  if Atomic.get st.need_wakeup then wakeup st
 
 let enqueue_failed_thread st k ex =
   Logs.debug (fun f -> f "Enqueue failed thread");
   Lf_queue.push st.run_q (Failed_thread (k, ex));
   if Atomic.get st.need_wakeup then wakeup st
 
-let with_cancel_hook ~action st fn =
+let with_cancel_hook ~action st fd ol fn =
   match Fiber_context.get_error action.Suspended.fiber with
   | Some ex -> enqueue_failed_thread st action ex; false
   | None ->
     match fn () with
     | None -> true
-    | Some job ->
-      Fiber_context.set_cancel_fn action.fiber (fun _ -> cancel job);
+    | Some _job ->
+      Fiber_context.set_cancel_fn action.fiber (fun _ -> cancel ol fd);
       false
 
 let rec enqueue_read args st action =
   let (file_offset,fd,buf,len) = args in
   Ctf.label "read";
-  let retry = with_cancel_hook ~action st (fun () ->
+  let ol = Iocp.Overlapped.create ~off:file_offset () in
+  let retry = with_cancel_hook ~action st fd ol (fun () ->
+      Logs.debug (fun f -> f "READ JOBS %i" st.jobs);
       st.jobs <- st.jobs + 1;
-      Iocp.read st.iocp ~file_offset ~off:0 ~len (FD.get "read" fd) buf (Job (`R, action)))
+      Iocp.read st.iocp ~file_offset ~off:0 ~len (FD.get "read" fd) buf (Job (`R, action)) ol)
   in
   if retry then (* wait until an sqe is available *)
     Queue.push (fun st -> enqueue_read args st action) st.io_q
@@ -171,13 +166,73 @@ let rec enqueue_read args st action =
 let rec enqueue_write args st action =
   let (file_offset,fd,buf,len) = args in
   Ctf.label "write";
-  let retry = with_cancel_hook ~action st (fun () ->
+  let ol = Iocp.Overlapped.create ~off:file_offset () in
+  let retry = with_cancel_hook ~action st fd ol (fun () ->
+      Logs.debug (fun f -> f "WRITE JOBS %i" st.jobs);
       st.jobs <- st.jobs + 1;
-      Iocp.write st.iocp ~file_offset ~off:0 ~len (FD.get "write" fd) buf (Job (`W, action))
+      Iocp.write st.iocp ~file_offset ~off:0 ~len (FD.get "write" fd) buf (Job (`W, action)) ol
     )
   in
   if retry then (* wait until an sqe is available *)
     Queue.push (fun st -> enqueue_write args st action) st.io_q
+
+let rec enqueue_connect fd addr st action =
+  Log.debug (fun l -> l "connect: submitting call");
+  Ctf.label "connect";
+  let ol = Iocp.Overlapped.create () in
+  let retry = with_cancel_hook ~action st fd ol (fun () ->
+    Logs.debug (fun f -> f "CONNECT JOBS %i" st.jobs);
+      st.jobs <- st.jobs + 1;
+      let handle = FD.get "connect" fd in
+      Unix.bind (handle :> Unix.file_descr) (ADDR_INET (Unix.inet_addr_any, 0));
+      Iocp.connect st.iocp handle addr (Job (`C, action)) ol
+    )
+  in
+  if retry then (* wait until an sqe is available *)
+    Queue.push (fun st -> enqueue_connect fd addr st action) st.io_q
+
+let rec enqueue_accept fd sock addr_buf st action =
+  Log.debug (fun l -> l "accept: submitting call");
+  Ctf.label "accept";
+  let ol = Iocp.Overlapped.create () in
+  let retry = with_cancel_hook ~action st fd ol (fun () ->
+      Logs.debug (fun f -> f "ACCEPT JOBS %i" st.jobs);
+      (* st.jobs <- st.jobs + 1; *)
+      Logs.debug (fun f -> f "JOBS %i" st.jobs);
+      Iocp.accept st.iocp (FD.get "accept" fd) sock addr_buf (Job (`A, action)) ol
+    ) in
+  if retry then (
+    (* wait until an sqe is available *)
+    Queue.push (fun st -> enqueue_accept fd sock addr_buf st action) st.io_q
+  )
+
+let rec enqueue_send sock bufs st action =
+  Log.debug (fun l -> l "send: submitting call");
+  Ctf.label "send";
+  let ol = Iocp.Overlapped.create () in
+  let retry = with_cancel_hook ~action st sock ol (fun () ->
+      Logs.debug (fun f -> f "SEND JOBS %i" st.jobs);
+      st.jobs <- st.jobs + 1;
+      let handle = FD.get "send" sock in
+      Iocp.send st.iocp handle bufs (Job (`W, action)) ol
+    )
+  in
+  if retry then (* wait until an sqe is available *)
+    Queue.push (fun st -> enqueue_send sock bufs st action) st.io_q
+
+let rec enqueue_recv sock bufs st action =
+  Log.debug (fun l -> l "recv: submitting call");
+  Ctf.label "recv";
+  let ol = Iocp.Overlapped.create () in
+  let retry = with_cancel_hook ~action st sock ol (fun () ->
+      Logs.debug (fun f -> f "RECV JOBS %i" st.jobs);
+      st.jobs <- st.jobs + 1;
+      let handle = FD.get "recv" sock in
+      Iocp.recv st.iocp handle bufs (Job (`R, action)) ol
+    )
+  in
+  if retry then (* wait until an sqe is available *)
+    Queue.push (fun st -> enqueue_recv sock bufs st action) st.io_q
 
 module Low_level = struct
   let read ?file_offset fd buf len =
@@ -185,6 +240,7 @@ module Low_level = struct
       | Some x -> x
       | None -> fd.FD.off
     in
+    Log.debug (fun f -> f "read: entering read");
     let res = enter (enqueue_read (fo, fd, buf, len)) in
     Log.debug (fun l -> l "readv: woken up after read %i" res);
     if res < 0 then (
@@ -208,9 +264,48 @@ module Low_level = struct
     ) else (
       fd.off <- Optint.Int63.(add fd.off (of_int res))
     )
+  
+  let connect fd addr =
+    Log.debug (fun f -> f "Connect");
+    let res = enter (enqueue_connect fd addr) in
+    Log.debug (fun l -> l "connect returned");
+    if res < 0 then (
+      raise (Unix.Unix_error (EUNKNOWNERR res, "connect", ""))
+    )
+
+  let accept ~sw fd sock =
+    Ctf.label "accept";
+    let addr_buf = Iocp.Accept_buffer.create () in
+    let res = enter (enqueue_accept fd sock addr_buf) in
+    Log.debug (fun l -> l "accept returned");
+    if res < 0 then (
+      raise (Unix.Unix_error (EUNKNOWNERR res, "accept", ""))
+    ) else (
+      let client = FD.of_unix ~sw ~seekable:false ~close_unix:true sock in
+      let client_addr = Iocp.Accept_buffer.get_remote addr_buf sock in
+      client, (Iocp.Sockaddr.get client_addr)
+    )
+
+  let send sock bufs =
+    Log.debug (fun f -> f "Send");
+    let res = enter (enqueue_send sock bufs) in
+    Log.debug (fun l -> l "send returned");
+    if res < 0 then (
+      raise (Unix.Unix_error (EUNKNOWNERR res, "send", ""))
+    )
+
+  let recv sock bufs =
+    Log.debug (fun f -> f "Receive");
+    let res = enter (enqueue_recv sock bufs) in
+    Log.debug (fun l -> l "receive returned");
+    if res < 0 then (
+      raise (Unix.Unix_error (EUNKNOWNERR res, "receive", ""))
+    ) else if res = 0 then (
+      raise End_of_file
+    ) else res
 end
 
-type _ Eio.Generic.ty += FD : FD.t Eio.Generic.ty
+type _ Eio.Generic.ty += FD : FD.t Eio.Generic.ty [@@ocaml.warning "-38"]
 
 let flow fd =
   object (_ : <source; sink; ..>)
@@ -235,14 +330,51 @@ let flow fd =
           let sub = Cstruct.sub buf 0 got in
           Low_level.write fd sub got
         done
-      with End_of_file -> ()
+      with End_of_file -> traceln "END OF FILE!"
 
     method shutdown cmd =
-      Unix.shutdown (FD.get "shutdown" fd :> Unix.file_descr) @@ match cmd with
+      traceln "Calling shutdown...";
+      let () = Unix.shutdown (FD.get "shutdown" fd :> Unix.file_descr) @@ match cmd with
       | `Receive -> Unix.SHUTDOWN_RECEIVE
       | `Send -> Unix.SHUTDOWN_SEND
-      | `All -> Unix.SHUTDOWN_ALL
+      | `All -> Unix.SHUTDOWN_ALL in traceln "SHUTDOWN!!!!"
   end
+
+  let socket_flow fd =
+    object (_ : <source; sink; ..>)
+      method fd = fd
+      method close = FD.close fd
+  
+      method probe : type a. a Eio.Generic.ty -> a option = function
+        | FD -> Some fd
+        | Eio_unix.Private.Unix_file_descr op -> Some (FD.to_unix op fd)
+        | _ -> None
+  
+      method read_into buf =
+        let i = Low_level.recv fd [ buf ] in
+        Logs.debug (fun f -> f "Receive got %i, %s" i (Cstruct.to_string buf));
+        i
+  
+      method read_methods = []
+  
+      method copy src =
+        let buf = Cstruct.create 4096 in
+        try
+          while true do
+            let got = Eio.Flow.read src buf in
+            let sub = Cstruct.sub buf 0 got in
+            Low_level.send fd [ sub ]
+          done
+        with End_of_file -> ()
+  
+      method shutdown cmd =
+        let fd = (FD.get "shutdown" fd) in
+        traceln "About to shutdown...";
+        let () = Iocp.Handle.shutdown fd @@ match cmd with
+        | `Receive -> Unix.SHUTDOWN_RECEIVE
+        | `Send -> Unix.SHUTDOWN_SEND
+        | `All -> Unix.SHUTDOWN_ALL in traceln "Shutdown sent..."
+    end
 
   (* Windows stdout, stdin and stderr don't have IOCP-style asynchronous functions. *)
   let stdflow fd =
@@ -317,6 +449,93 @@ let fs = object
   inherit dir None
 end
 
+let listening_socket fd = object
+  inherit Eio.Net.listening_socket
+
+  method! probe : type a. a Eio.Generic.ty -> a option = function
+    | Eio_unix.Private.Unix_file_descr op -> Some (FD.to_unix op fd)
+    | _ -> None
+
+  method close = FD.close fd
+
+  method accept ~sw =
+    Switch.check sw;
+    let sock = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
+    let handle = Iocp.Handle.of_unix sock in
+    let client, client_addr = Low_level.accept ~sw fd handle in
+    Iocp.Handle.update_accept_ctx handle;
+    let client_addr = match client_addr with
+      | Unix.ADDR_UNIX path         -> `Unix path
+      | Unix.ADDR_INET (host, port) -> `Tcp (Eio_unix.Ipaddr.of_unix host, port)
+    in
+    let flow = (socket_flow client :> <Eio.Flow.two_way; Eio.Flow.close>) in
+    flow, client_addr
+end
+
+let net = object
+  inherit Eio.Net.t
+
+  method listen ~reuse_addr ~reuse_port ~backlog ~sw listen_addr =
+    let socket_domain, socket_type, addr =
+      match listen_addr with
+      | `Unix path         ->
+        if reuse_addr then (
+          match Unix.lstat path with
+          | Unix.{ st_kind = S_SOCK; _ } -> Unix.unlink path
+          | _ -> ()
+          | exception Unix.Unix_error (Unix.ENOENT, _, _) -> ()
+        );
+        Unix.PF_UNIX, Unix.SOCK_STREAM, Unix.ADDR_UNIX path
+      | `Tcp (host, port)  ->
+        let host = Eio_unix.Ipaddr.to_unix host in
+        Unix.PF_INET, Unix.SOCK_STREAM, Unix.ADDR_INET (host, port)
+    in
+    let sock_unix = Unix.socket socket_domain socket_type 0 in
+    (* For Unix domain sockets, remove the path when done (except for abstract sockets). *)
+    begin match listen_addr with
+      | `Unix path ->
+        if String.length path > 0 && path.[0] <> Char.chr 0 then
+          Switch.on_release sw (fun () -> Unix.unlink path)
+      | `Tcp _ -> ()
+    end;
+    if reuse_addr then
+      Unix.setsockopt sock_unix Unix.SO_REUSEADDR true;
+    if reuse_port then
+      Unix.setsockopt sock_unix Unix.SO_REUSEPORT true;
+    Unix.bind sock_unix addr;
+    Unix.listen sock_unix backlog;
+    let sock = FD.of_unix ~sw ~seekable:false ~close_unix:true (Iocp.Handle.of_unix sock_unix) in
+    listening_socket sock
+
+  method connect ~sw addr =
+    let socket_domain, socket_type, addr =
+      match addr with
+      | `Unix path         -> Unix.PF_UNIX, Unix.SOCK_STREAM, Unix.ADDR_UNIX path
+      | `Tcp (host, port)  ->
+        let host = Eio_unix.Ipaddr.to_unix host in
+        Unix.PF_INET, Unix.SOCK_STREAM, Unix.ADDR_INET (host, port)
+    in
+    let sock_unix = Unix.socket socket_domain socket_type 0 in
+    let handle = Iocp.Handle.of_unix sock_unix in
+    let sock = FD.of_unix ~sw ~seekable:false ~close_unix:true handle in
+    Low_level.connect sock addr;
+    (* This allows shutdown to work, see https://docs.microsoft.com/en-us/windows/win32/winsock/sol-socket-socket-options?redirectedfrom=MSDN *)
+    Iocp.Handle.update_connect_ctx handle;
+    (socket_flow sock :> <Eio.Flow.two_way; Eio.Flow.close>)
+
+  method datagram_socket ~sw = function
+    | `Udp (host, port) ->
+      let host = Eio_unix.Ipaddr.to_unix host in
+      let addr = Unix.ADDR_INET (host, port) in
+      let sock_unix = Unix.socket Unix.PF_INET Unix.SOCK_DGRAM 0 in
+      Unix.setsockopt sock_unix Unix.SO_REUSEADDR true;
+      Unix.setsockopt sock_unix Unix.SO_REUSEPORT true;
+      let sock = FD.of_unix ~sw ~seekable:false ~close_unix:true (Iocp.Handle.of_unix sock_unix) in
+      Unix.bind sock_unix addr;
+      (* udp_socket sock *)
+      Obj.magic sock
+end
+
 type stdenv = <
   stdin  : source;
   stdout : sink;
@@ -338,7 +557,7 @@ let stdenv () =
     method stdin  = Lazy.force stdin
     method stdout = Lazy.force stdout
     method stderr = Lazy.force stderr
-    method net = Obj.magic ()
+    method net = net
     method domain_mgr = Obj.magic ()
     method clock = Obj.magic ()
     method fs = (fs :> Eio.Dir.t)
@@ -353,32 +572,46 @@ let enqueue_at_head st k x =
 
 (* Resume the next runnable fiber, if any. *)
 let rec schedule t =
+  Logs.debug (fun f -> f "Scheduling...");
   match Lf_queue.pop t.run_q with
-  | Some Thread (k, v) -> 
-    t.jobs <- t.jobs - 1;
+  | Some Thread (k, v) ->
+    Logs.debug (fun f -> f "Resume thread");
     Suspended.continue k v               (* We already have a runnable task *)
   | Some Failed_thread (k, ex) -> 
-    t.jobs <- t.jobs - 1;
+    Logs.debug (fun f -> f "Resume failed thread");
     Suspended.discontinue k ex
-  | None -> 
+  | None ->
+    (* Logs.debug (fun f -> f "Peeking into the queue");
+    match Iocp.peek t.iocp with
+    | Some { data = runnable; bytes_transferred } ->
+      Logs.debug (fun f -> f "Got completion from port after peeking!");
+      handle_complete t ~runnable bytes_transferred
+    | None -> *)
+    Logs.debug (fun f -> f "Jobs left: %i" t.jobs);
     if not (Lf_queue.is_empty t.run_q) then (
       schedule t
     ) else if t.jobs = 0 then (
       Lf_queue.close t.run_q;      (* Just to catch bugs if something tries to enqueue later *)
       `Exit_scheduler
     ) else (
-      Logs.debug (fun f -> f "Nothing in runq, jobs left: %i" t.jobs);
       Atomic.set t.need_wakeup true;
-      let result = Iocp.get_queued_completion_status t.iocp in
-      Atomic.set t.need_wakeup false;
-      match result with
-        | None ->
-          (* Woken by a timeout, which is now due, or by a signal. *)
-          Logs.debug (fun f -> f "None returned from completion port");
-          schedule t
-        | Some { data = runnable; bytes_transferred } ->
-          Logs.debug (fun f -> f "Got completion from port!");
-          handle_complete t ~runnable bytes_transferred
+      if Lf_queue.is_empty t.run_q then (
+        Logs.debug (fun f -> f "Waiting on completion port...");
+        let result = Iocp.get_queued_completion_status t.iocp in
+        Atomic.set t.need_wakeup false;
+        match result with
+          | None ->
+            (* Woken by a timeout, which is now due, or by a signal. *)
+            Logs.debug (fun f -> f "None returned from completion port");
+            schedule t
+          | Some { data = runnable; bytes_transferred } ->
+            Logs.debug (fun f -> f "Got completion from port!");
+            handle_complete t ~runnable bytes_transferred
+      ) else (
+        Log.debug (fun f -> f "Runq is not empty");
+        Atomic.set t.need_wakeup false;
+        schedule t
+      )
     )
   and handle_complete st ~runnable result =
     Logs.debug (fun f -> f "Handle completion, jobs left: %i" st.jobs);
@@ -386,7 +619,7 @@ let rec schedule t =
     match runnable with
     | Job (kind, k) ->
       (* clear_cancel k; *)
-      Logs.debug (fun f -> f "Kind %s" (if kind = `R then "READ" else "WRITE"));
+      Logs.debug (fun f -> f "Kind %s" (match kind with `R -> "READ" | `W -> "WRITE" | `C -> "CONNECT" | `A -> "ACCEPT"));
       begin match Fiber_context.get_error k.fiber with
         | None ->
           Logs.debug (fun f -> f "Result %i" result);
@@ -397,8 +630,6 @@ let rec schedule t =
              We already do that with rw jobs. *)
           Suspended.discontinue k e
       end
-    | Job_no_cancel k ->
-      Suspended.continue k result
 
 let monitor_event_fd t =
   let buf = Cstruct.create 8 in
@@ -434,17 +665,16 @@ let run main =
               fn st k;
               schedule st)
           | Eio.Private.Effects.Suspend f -> Some (fun k ->
-            st.jobs <- st.jobs + 1;
+            (* st.jobs <- st.jobs + 1; *)
             let k = { Suspended.k; fiber } in
             f fiber (function
                 | Ok v -> enqueue_thread st k v
-                | Error ex -> 
-                  print_endline @@ Printexc.to_string ex;
-                  enqueue_failed_thread st k ex
+                | Error ex -> enqueue_failed_thread st k ex
               );
             schedule st
           )
           | Eio.Private.Effects.Fork (new_fiber, f) -> Some (fun k ->
+            (* st.jobs <- st.jobs + 1; *)
             let k = { Suspended.k; fiber } in
             enqueue_at_head st k ();
             fork ~new_fiber f
