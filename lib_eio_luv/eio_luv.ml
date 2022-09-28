@@ -596,6 +596,7 @@ let get_fd_opt t = Eio.Generic.probe t FD
 let flow fd = object (_ : <source; sink; ..>)
   method fd = fd
   method close = Low_level.File.close fd
+  method unix_fd op = File.to_unix op fd
 
   method probe : type a. a Eio.Generic.ty -> a option = function
     | FD -> Some fd
@@ -841,6 +842,60 @@ let net = object
   method getnameinfo = Eio_unix.getnameinfo
 end
 
+let process_of_handle status_promise handle = object
+   inherit Eio.Process.process
+   method stop = Luv.Process.kill handle Luv.Signal.sigkill |> or_raise
+   method pid = Luv.Process.pid handle
+   method status = Promise.await status_promise
+end
+
+let get_fd_or_err flow =
+  match get_fd_opt flow with
+  | Some fd -> 
+    Unix.dup ~cloexec:false (File.to_unix `Peek fd)
+  | None -> failwith "Currently only flows backed by file descriptors are supported!"
+
+let process = object
+  inherit Eio.Process.t
+
+  method spawn ~sw ?cwd ?stderr:stderr_flow ?stdout:stdout_flow ?stdin:stdin_flow cmd args =
+    let promise, resolve = Promise.create () in
+    let stdout_fd = Option.map get_fd_or_err stdout_flow in
+    let stdin_fd = Option.map get_fd_or_err stdin_flow in
+    let stderr_fd = Option.map get_fd_or_err stderr_flow in
+    let on_exit _ ~exit_status ~term_signal =
+      let status = 
+        match term_signal, exit_status with
+        | 0, e -> Eio.Process.Exited (Int64.to_int e)
+        | i, _ -> Eio.Process.Signaled i
+      in
+        Option.iter Unix.close stdout_fd;
+        Option.iter Unix.close stderr_fd;
+        Option.iter Unix.close stdin_fd;
+        Promise.resolve resolve status
+    in
+    let redirect = Luv.Process.[
+       Option.map (fun fd -> inherit_fd ~fd:Luv.Process.stdout ~from_parent_fd:(fd |> Obj.magic) ()) stdout_fd;
+       Option.map (fun fd -> inherit_fd ~fd:Luv.Process.stderr ~from_parent_fd:(fd |> Obj.magic) ()) stderr_fd;
+       Option.map (fun fd -> inherit_fd ~fd:Luv.Process.stdin ~from_parent_fd:(fd |> Obj.magic) ()) stdin_fd
+    ] |> List.filter_map Fun.id
+    in
+    Switch.on_release sw (fun () -> ignore (Promise.await promise));
+    Luv.Process.spawn ~loop:(get_loop ()) ?working_directory:cwd ~redirect ~on_exit cmd args |> or_raise |> process_of_handle promise
+
+  method spawn_detached ?cwd ?stderr:_ ?stdout:_ ?stdin:_ cmd args = 
+    let promise, resolve = Promise.create () in
+    let on_exit _ ~exit_status ~term_signal =
+      let status = 
+        match term_signal, exit_status with
+        | 0, e -> Eio.Process.Exited (Int64.to_int e)
+        | i, _ -> Eio.Process.Signaled i
+      in
+        Promise.resolve resolve status
+    in
+    Luv.Process.spawn ?working_directory:cwd ~on_exit cmd args |> or_raise |> process_of_handle promise
+end
+
 let secure_random =
   object
     inherit Eio.Flow.source
@@ -856,6 +911,7 @@ type stdenv = <
   stdout : sink;
   stderr : sink;
   net : Eio.Net.t;
+  process : Eio.Process.t;
   domain_mgr : Eio.Domain_manager.t;
   clock : Eio.Time.clock;
   fs : Eio.Fs.dir Eio.Path.t;
@@ -1038,6 +1094,7 @@ let stdenv ~run_event_loop =
     method stdout = Lazy.force stdout
     method stderr = Lazy.force stderr
     method net = net
+    method process = process
     method domain_mgr = domain_mgr ~run_event_loop
     method clock = clock
     method fs = (fs :> Eio.Fs.dir), "."
@@ -1133,6 +1190,16 @@ let rec run : type a. (_ -> a) -> a = fun main ->
               continue k (socket handle :> Eio_unix.socket)
             with Luv_error _ as ex ->
               discontinue k ex
+          )
+        | Eio_unix.Private.Pipe sw -> Some (fun k ->
+            let r, w = Unix.pipe ~cloexec:true () in 
+            (* Luv.Pipe.init - can't use streams
+               Luv.Pipe.pipe - raises EAGAIN *)
+            let r = Luv_unix.Os_fd.Fd.from_unix r |> or_raise |> Luv.File.open_osfhandle |> or_raise in
+            let w = Luv_unix.Os_fd.Fd.from_unix w |> or_raise |> Luv.File.open_osfhandle |> or_raise in
+            let r = (flow (File.of_luv ~close_unix:true ~sw r) :> <Eio.Flow.source; Eio.Flow.close; Eio_unix.unix_fd>) in
+            let w = (flow (File.of_luv ~close_unix:true ~sw w) :> <Eio.Flow.sink; Eio.Flow.close; Eio_unix.unix_fd>) in
+            continue k (r, w)
           )
         | Eio_unix.Private.Socketpair (sw, domain, ty, protocol) -> Some (fun k ->
             try
