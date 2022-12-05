@@ -26,15 +26,7 @@ let await_writable fd = Effect.perform (Private.Await_writable fd)
 let sleep d =
   Eio.Time.Mono.sleep (Effect.perform Private.Get_monotonic_clock) d
 
-let run_in_systhread fn =
-  let f fiber enqueue =
-    match Eio.Private.Fiber_context.get_error fiber with
-    | Some err -> enqueue (Error err)
-    | None ->
-      let _t : Thread.t = Thread.create (fun () -> enqueue (try Ok (fn ()) with exn -> Error exn)) () in
-      ()
-  in
-  Effect.perform (Eio.Private.Effects.Suspend f)
+let run_in_systhread : 'a. (unit -> 'a) -> 'a = fun v -> Backend.run_in_systhread ~kind:(`Program "eio_unix") v
 
 module FD = struct
   let peek x = x#unix_fd `Peek
@@ -68,3 +60,5 @@ let getnameinfo (sockaddr : Eio.Net.Sockaddr.t) =
   run_in_systhread (fun () ->
     let Unix.{ni_hostname; ni_service} = Unix.getnameinfo sockaddr options in
     (ni_hostname, ni_service))
+
+module Backend = Backend

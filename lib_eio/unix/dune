@@ -1,4 +1,17 @@
 (library
  (name eio_unix)
  (public_name eio.unix)
- (libraries eio unix threads mtime.clock.os))
+ ; (foreign_stubs
+ ;  (language c)
+ ;  (flags :standard -D_LARGEFILE64_SOURCE)
+ ;  (names eio_unix_stubs))
+ (libraries 
+    eio
+    eio.utils
+    unix
+    (select eventfd.ml from
+      ; (eio_linux -> eventfd.linux.ml)
+      (          -> eventfd.macos.ml))
+    logs
+    threads
+    mtime.clock.os))
