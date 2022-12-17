@@ -969,6 +969,25 @@ type stdenv = <
 let domain_mgr ~run_event_loop = object (self)
   inherit Eio.Domain_manager.t
 
+  val mutable id = 0
+  val subsystems = Hashtbl.create 16
+  val mutable pools : (Eio.Domain_manager.parcap, Domainslib.Task.pool) Hashtbl.t = Hashtbl.create 128
+
+  method register ~name =
+    match Hashtbl.find_opt subsystems name with
+    | Some v -> v
+    | None ->
+      id <- id + 1;
+      Hashtbl.add subsystems name id;
+      Hashtbl.add pools id (Domainslib.Task.setup_pool ~name ~num_domains:4 ());
+      id
+(* parcap -> (unit -> 'a) -> ('a, 'b) Effect.Deep.continuation -> 'b *)
+  method submit : 'a. int -> (unit -> 'a) -> 'a = fun parcap task ->
+    let pool = Hashtbl.find pools parcap in
+    enter @@ fun t k ->
+    let _ = Domainslib.Task.async pool (fun () -> enqueue_thread t k (task ())) in
+    ()
+
   method run_raw (type a) fn =
     let domain_k : (unit Domain.t * a Suspended.t) option ref = ref None in
     let result = ref None in

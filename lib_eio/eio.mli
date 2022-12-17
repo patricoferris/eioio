@@ -86,12 +86,32 @@ module Net = Net
 
 (** Parallel computation across multiple CPU cores. *)
 module Domain_manager : sig
+  type parcap = int
+
   class virtual t : object
+    method virtual register : name:string -> parcap
+    method virtual submit : 'a 'b. parcap -> (unit -> 'a) -> 'a
     method virtual run_raw : 'a. (unit -> 'a) -> 'a
 
     method virtual run : 'a. (unit -> 'a) -> 'a
     (** Note: cancellation is handled by the {!run} wrapper function, not the object. *)
   end
+
+  module type Op = sig
+    type t
+  
+    type value
+  
+    val pp : t Fmt.t
+  
+    val name : string
+  
+    val handle : t -> value
+  end
+
+  val register : #t -> name:string -> parcap
+
+  val submit : #t -> parcap -> (unit -> 'a) -> 'a
 
   val run : #t -> (unit -> 'a) -> 'a
   (** [run t f] runs [f ()] in a newly-created domain and returns the result.
