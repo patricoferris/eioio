@@ -1,0 +1,8 @@
+(executable
+ (name test)
+ (modes js)
+ (flags -g)
+ (js_of_ocaml (flags  --target-env=nodejs --enable=effects 
+  ; --debug-info --source-map --pretty
+  ))
+ (libraries eio_node))
