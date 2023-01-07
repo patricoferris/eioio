@@ -1,0 +1,11 @@
+(executable
+ (name test)
+ (modes js)
+ (flags -g)
+ (js_of_ocaml (flags --target-env=nodejs --enable=effects --debug-info --source-map --pretty))
+ (libraries alcotest eio_node))
+
+(rule
+ (alias runtest)
+ (deps test.bc.js)
+ (action (run node test.bc.js)))

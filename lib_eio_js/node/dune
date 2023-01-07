@@ -1,0 +1,4 @@
+(library
+ (name eio_node)
+ (public_name eio_node)
+ (libraries eio unix num fmt eio.utils js_of_ocaml logs brr))
