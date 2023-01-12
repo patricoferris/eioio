@@ -10,6 +10,7 @@ module Std = struct
   module Fiber = Fiber
   module Fibre = Fiber
   module Switch = Switch
+  module Base = Base
   let traceln = Debug.traceln
 end
 

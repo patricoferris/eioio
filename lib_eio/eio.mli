@@ -51,6 +51,7 @@ module Std : sig
   module Fibre = Fiber [@@deprecated "Now spelt Fiber"]
   (**/**)
   module Switch = Switch
+  module Base = Base
 
   val traceln :
     ?__POS__:string * int * int * int ->
@@ -86,32 +87,21 @@ module Net = Net
 
 (** Parallel computation across multiple CPU cores. *)
 module Domain_manager : sig
-  type parcap = int
 
   class virtual t : object
-    method virtual register : name:string -> parcap
-    method virtual submit : 'a 'b. parcap -> (unit -> 'a) -> 'a
     method virtual run_raw : 'a. (unit -> 'a) -> 'a
 
     method virtual run : 'a. (unit -> 'a) -> 'a
     (** Note: cancellation is handled by the {!run} wrapper function, not the object. *)
   end
 
-  module type Op = sig
-    type t
-  
-    type value
-  
-    val pp : t Fmt.t
-  
-    val name : string
-  
-    val handle : t -> value
-  end
+  type system = ..
 
-  val register : #t -> name:string -> parcap
+  (** Parallel operations  *)
+  type _ Effect.t += Submit : system * (unit -> 'a) -> 'a Effect.t
 
-  val submit : #t -> parcap -> (unit -> 'a) -> 'a
+  val submit : system -> (unit -> 'a) -> 'a
+  (** Submit a task to be run in parallel for a particular subsystem *)
 
   val run : #t -> (unit -> 'a) -> 'a
   (** [run t f] runs [f ()] in a newly-created domain and returns the result.

@@ -1,58 +1,14 @@
 open Effect
 
-type parcap = int
-
 class virtual t = object
-  method virtual register : name:string -> parcap
-  method virtual submit : 'a 'b. parcap -> (unit -> 'a) -> 'a
   method virtual run : 'a. (unit -> 'a) -> 'a
   method virtual run_raw : 'a. (unit -> 'a) -> 'a
 end
 
-module type Op = sig
-  type t
+type system = ..
 
-  type value
-
-  val pp : t Fmt.t
-
-  val name : string
-
-  val handle : t -> value
-end
-
-(* module Par (Op : Op) = struct
-  type _ Effect.t += Par : Op.t -> Op.value Effect.t
-  (* type _ Effect.t += Seq : (('a -> 'b) * 'a) -> 'b Effect.t *)
-  (* let pipe f v = Effect.perform (Seq (f, v)) *)
-
-  let task op = Effect.perform (Par op)
-
-  let run : type a. #t -> (unit -> a) -> a = fun t fn ->
-    let open Effect.Deep in
-    let par_cap = t#register ~name:Op.name in
-      let fork fn =
-      match_with fn () {
-        retc = Fun.id;
-        exnc = raise;
-        effc = fun (type a) (e : a Effect.t) -> match e with
-        | Par op -> Some (fun (k : (a, _) continuation) ->
-          t#submit par_cap (fun () -> Op.handle op) k
-        )
-        | _ -> None
-      }
-    in
-    let res = ref None in
-    let `Exit_scheduler = 
-      fork (fun () -> 
-        let v = fn () in
-        res := Some v;
-        `Exit_scheduler)
-    in 
-    Option.get !res
-end *)
-
-let submit (t : #t) = t#submit
+type _ Effect.t += Submit : system * (unit -> 'a) -> 'a Effect.t
+let submit sys f = Effect.perform (Submit (sys, f))
 
 let register (t : #t) = t#register
 

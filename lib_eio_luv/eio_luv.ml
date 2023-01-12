@@ -969,25 +969,6 @@ type stdenv = <
 let domain_mgr ~run_event_loop = object (self)
   inherit Eio.Domain_manager.t
 
-  val mutable id = 0
-  val subsystems = Hashtbl.create 16
-  val mutable pools : (Eio.Domain_manager.parcap, Domainslib.Task.pool) Hashtbl.t = Hashtbl.create 128
-
-  method register ~name =
-    match Hashtbl.find_opt subsystems name with
-    | Some v -> v
-    | None ->
-      id <- id + 1;
-      Hashtbl.add subsystems name id;
-      Hashtbl.add pools id (Domainslib.Task.setup_pool ~name ~num_domains:4 ());
-      id
-(* parcap -> (unit -> 'a) -> ('a, 'b) Effect.Deep.continuation -> 'b *)
-  method submit : 'a. int -> (unit -> 'a) -> 'a = fun parcap task ->
-    let pool = Hashtbl.find pools parcap in
-    enter @@ fun t k ->
-    let _ = Domainslib.Task.async pool (fun () -> enqueue_thread t k (task ())) in
-    ()
-
   method run_raw (type a) fn =
     let domain_k : (unit Domain.t * a Suspended.t) option ref = ref None in
     let result = ref None in
@@ -1211,6 +1192,10 @@ let rec run : type a. (_ -> a) -> a = fun main ->
     ) |> or_raise in
   let st = { loop; async; run_q; fd_map = Fd_map.empty } in
   let stdenv = stdenv ~run_event_loop:run in
+  let pool = Domainslib.Task.setup_pool ~num_domains:4 () in
+  let par_table = Hashtbl.create 128 in
+  let par_alloc = Hashtbl.create 8 in
+  let op_uid = ref 0 in
   let rec fork ~new_fiber:fiber fn =
     Ctf.note_switch (Fiber_context.tid fiber);
     let open Effect.Deep in
@@ -1297,6 +1282,42 @@ let rec run : type a. (_ -> a) -> a = fun main ->
             let w = (flow (File.of_luv ~close_unix:true ~sw w) :> <Eio.Flow.sink; Eio.Flow.close; Eio_unix.unix_fd>) in
             continue k (r, w)
           )
+          | Eio.Domain_manager.Submit (system, task) -> Some (fun k ->
+              let tasks =
+                match Hashtbl.find_opt par_table system with
+                | Some i -> i
+                | None -> []
+              in
+              let alloc = match Hashtbl.find_opt par_alloc system with
+                | Some i -> i
+                | None ->
+                  (* Should be smarter and check how many domains to allocate,
+                     here I've just thrown in 4. *)
+                  Hashtbl.add par_alloc system 4;
+                  4
+              in
+              let () =
+                if List.length tasks = alloc then begin
+                  let () =
+                    Domainslib.Task.run pool @@ fun () ->
+                    List.iter (Domainslib.Task.await pool) tasks;
+                  in
+                  let task = Domainslib.Task.async pool (fun () ->
+                    let v = task () in
+                    let k = { Suspended.k; fiber } in
+                    enqueue_thread st k v
+                  ) in
+                  Hashtbl.replace par_table system (task :: [])
+                end else
+                  let task = Domainslib.Task.async pool (fun () ->
+                    let v = task () in
+                    let k = { Suspended.k; fiber } in
+                    enqueue_thread st k v
+                  ) in
+                  Hashtbl.replace par_table system (task :: tasks)
+              in
+                ()
+            )
         | _ -> None
     }
   in
