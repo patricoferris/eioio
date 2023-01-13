@@ -66,12 +66,14 @@ let rec schedule t : unit =
   | None ->
     if t.pending_io = 0 then begin
       Option.iter G.stop_timer t.timeout;
+      (* Option.iter G.cancel_animation_frame t.timeout; *)
       t.timeout <- None
     end
     else begin
       match t.timeout with
       | None ->
         let id = G.set_timeout ~ms:0 (fun () -> t.timeout <- None; schedule t) in
+        (* let id = G.request_animation_frame (fun _ -> t.timeout <- None; schedule t) in *)
         t.timeout <- Some id;
         schedule t
       | Some _id -> ()
@@ -86,6 +88,13 @@ end
 
 let await fut =
   enter_io @@ Fut.await fut
+
+let next_event : 'a Brr.Ev.type' -> Brr.Ev.target -> 'a Brr.Ev.t = fun typ target ->
+  let opts = Brr.Ev.listen_opts ~once:true () in
+  let listen fn =
+    ignore (Brr.Ev.listen ~opts typ fn target : Brr.Ev.listener)
+  in
+  enter_io listen
 
 (* Largely based on the Eio_mock.Backend event loop. *)
 let run main =

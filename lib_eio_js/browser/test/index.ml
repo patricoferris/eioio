@@ -1,16 +1,31 @@
 open Eio
+open Brr
 
 let () =
+  let counter = Brr.Document.find_el_by_id G.document Jstr.(v "counter") |> Option.get in
+  let text = Brr.Document.find_el_by_id G.document Jstr.(v "text") |> Option.get in
+  let output = Brr.Document.find_el_by_id G.document Jstr.(v "output") |> Option.get in
   let main =
     Eio_browser.run @@ fun () ->
-    Fiber.both
-      (fun () -> Eio_browser.Timeout.sleep ~ms:1000; traceln "World")
-      (fun () -> traceln "Hello, ");
-    let p1, r1 = Fut.create () in
-    let p2, r2 = Fut.create () in
-    Fiber.both
-      (fun () -> Eio_browser.await p1; traceln "Waited for p1"; r2 ())
-      (fun () -> r1 (); Eio_browser.await p2; traceln "Waited for p2");
-      "Done"
+    Eio.Switch.run @@ fun sw ->
+    Fiber.both (fun () ->
+        (* A little text editor *)
+        while true do
+          let ev = Eio_browser.next_event Ev.keyup (El.as_target text) in
+          let target = Jv.get (Ev.to_jv ev) "target" in
+          let text = Jv.get target "value" |> Jv.to_jstr in
+          Brr.El.set_children output [ El.txt text ]
+        done
+      )
+      (fun () ->
+         (* A little timer counting up *)
+         let i = ref 0 in
+         while true do
+           Eio_browser.Timeout.sleep ~ms:1000;
+           incr i;
+           Brr.El.set_children counter [ El.txt' (string_of_int !i ^ "s")]
+         done
+      )
+
   in
-  Fut.await main (fun v -> Brr.Console.log [ Jstr.v v ])
+  Fut.await main (fun v -> Brr.Console.log [ Jstr.v "Done" ])

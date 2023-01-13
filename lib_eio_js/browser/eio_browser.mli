@@ -6,6 +6,10 @@ end
 val await : 'a Fut.t -> 'a
 (** [await fut] blocks on the promise [fut] and allows other fibers to do work. *)
 
+val next_event : 'a Brr.Ev.type' -> Brr.Ev.target -> 'a Brr.Ev.t
+(** [next_event typ target] blocks until an event of type [typ] arrives
+    on the [target]. *)
+
 (** {1 Main loop} *)
 
 val run : (unit -> 'a) -> 'a Fut.t
