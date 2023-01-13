@@ -39,17 +39,43 @@ module Suspended = struct
     Effect.Deep.discontinue t.k ex
 end
 
+module Scheduler = struct
+  type t = {
+    listener : Brr.Ev.listener;
+    schedule : (unit -> unit);
+  }
+
+  let v ~schedule t =
+    let open Brr_io in
+    (* let ev = Brr.Ev.create Message.Ev.message in *)
+    let scheduler = El.div [] in
+    let el = El.as_target scheduler in
+    let listener = Brr.Ev.listen Message.Ev.message (fun _ev -> schedule t) el in
+    let schedule () =
+      Jv.call (El.to_jv scheduler) "dispatchEvent" [| Ev.create Message.Ev.message |> Ev.to_jv |] |> ignore
+    in
+    { listener; schedule }
+
+  let stop t =
+    Brr.Ev.unlisten t.listener
+
+  let wakeup t = t.schedule ()
+end
+
 type t = {
   (* Suspended fibers waiting to run again.
      [Lf_queue] is like [Stdlib.Queue], but is thread-safe (lock-free) and
      allows pushing items to the head too, which we need. *)
   mutable run_q : (unit -> unit) Lf_queue.t;
   mutable pending_io : int;
-  mutable timeout : int option;  (* ID for the setTimeout *)
+  mutable scheduler : Scheduler.t option;
 }
 
 let enqueue_thread t k v =
-  Lf_queue.push t.run_q (fun () -> Suspended.continue k v)
+  Lf_queue.push t.run_q (fun () -> Suspended.continue k v);
+  t.pending_io <- t.pending_io - 1;
+  Option.iter Scheduler.wakeup t.scheduler
+
 
 type _ Effect.t += Enter_unchecked : (t -> 'a Suspended.t -> unit) -> 'a Effect.t
 let enter_unchecked fn = Effect.perform (Enter_unchecked fn)
@@ -57,26 +83,15 @@ let enter_unchecked fn = Effect.perform (Enter_unchecked fn)
 let enter_io fn =
   enter_unchecked @@ fun st k ->
   st.pending_io <- st.pending_io + 1;
-  fn (fun res -> enqueue_thread st k res; st.pending_io <- st.pending_io - 1)
+  fn (enqueue_thread st k)
 
 (* Resume the next runnable fiber, if any. *)
 let rec schedule t : unit =
   match Lf_queue.pop t.run_q with
-  | Some f -> f ()
+  | Some f -> f ();
   | None ->
     if t.pending_io = 0 then begin
-      Option.iter G.stop_timer t.timeout;
-      (* Option.iter G.cancel_animation_frame t.timeout; *)
-      t.timeout <- None
-    end
-    else begin
-      match t.timeout with
-      | None ->
-        let id = G.set_timeout ~ms:0 (fun () -> t.timeout <- None; schedule t) in
-        (* let id = G.request_animation_frame (fun _ -> t.timeout <- None; schedule t) in *)
-        t.timeout <- Some id;
-        schedule t
-      | Some _id -> ()
+      Option.iter Scheduler.stop t.scheduler
     end
 
 module Timeout = struct
@@ -99,7 +114,9 @@ let next_event : 'a Brr.Ev.type' -> Brr.Ev.target -> 'a Brr.Ev.t = fun typ targe
 (* Largely based on the Eio_mock.Backend event loop. *)
 let run main =
   let run_q = Lf_queue.create () in
-  let t = { run_q; pending_io = 0; timeout = None } in
+  let t = { run_q; pending_io = 0; scheduler = None } in
+  let scheduler = Scheduler.v ~schedule t in
+  t.scheduler <- Some scheduler;
   let rec fork ~new_fiber:fiber fn =
     Effect.Deep.match_with fn ()
       { retc = (fun () -> Fiber_context.destroy fiber; schedule t);
