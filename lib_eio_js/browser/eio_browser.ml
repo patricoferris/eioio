@@ -84,6 +84,9 @@ module Timeout = struct
     enter_io @@ set_timeout ~ms
 end
 
+let await fut =
+  enter_io @@ Fut.await fut
+
 (* Largely based on the Eio_mock.Backend event loop. *)
 let run main =
   let run_q = Lf_queue.create () in

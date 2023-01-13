@@ -3,6 +3,9 @@ module Timeout : sig
   (** Non-blocking timeout that waits for [ms] millseconds. *)
 end
 
+val await : 'a Fut.t -> 'a
+(** [await fut] blocks on the promise [fut] and allows other fibers to do work. *)
+
 (** {1 Main loop} *)
 
 val run : (unit -> 'a) -> 'a Fut.t
