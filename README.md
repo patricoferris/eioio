@@ -380,7 +380,8 @@ Here's a simple implementation of `cat` using the standard OCaml functions:
 
 And here is the equivalent using Eio:
 
-```ocaml
+<!-- TODO: seems to hang on macOS kqueue -->
+```
 # let () =
     Eio_main.run @@ fun env ->
     Eio.Flow.copy
