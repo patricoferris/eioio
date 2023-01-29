@@ -18,6 +18,10 @@ test_luv:
 	rm -rf _build
 	EIO_BACKEND=luv dune runtest
 
+test_kqueue:
+	rm -rf _build
+	EIO_BACKEND=kqueue dune runtest
+
 dscheck:
 	dune exec -- ./lib_eio/tests/dscheck/test_sync.exe
 	dune exec -- ./lib_eio/tests/dscheck/test_semaphore.exe

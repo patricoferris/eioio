@@ -1,0 +1,7 @@
+(library
+ (public_name eio_kqueue)
+ (name eio_kqueue)
+ (foreign_stubs
+  (language c)
+  (names eio_kqueue_stubs))
+ (libraries eio eio.utils eio.unix kqueue cstruct-unix))

@@ -51,6 +51,15 @@
   (mdx (and (>= 1.10.0) :with-test))
   (fmt (>= 0.8.9))))
 (package
+(name eio_kqueue)
+ (synopsis "Eio implementation using kqueue")
+ (description "An eio implementation for BSD-platforms, using kqueue.")
+ (depends
+  (eio (= :version))
+  kqueue
+  (mdx (and (>= 1.10.0) :with-test))
+  (fmt (>= 0.8.9))))
+(package
  (name eio_main)
  (synopsis "Effect-based direct-style IO mainloop for OCaml")
  (description "Selects an appropriate Eio backend for the current platform.")

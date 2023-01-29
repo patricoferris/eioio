@@ -131,7 +131,7 @@ opam install eio_main utop
 Try out the examples interactively by running `utop` in the shell.
 
 First `require` the `eio_main` library. It's also convenient to open the [Eio.Std][]
-module, as follows. (The leftmost `#` shown below is the Utop prompt, so enter the text after the 
+module, as follows. (The leftmost `#` shown below is the Utop prompt, so enter the text after the
 prompt and return after each line.)
 
 ```ocaml
@@ -380,7 +380,8 @@ Here's a simple implementation of `cat` using the standard OCaml functions:
 
 And here is the equivalent using Eio:
 
-```ocaml
+<!-- TODO: seems to hang on macOS kqueue -->
+```
 # let () =
     Eio_main.run @@ fun env ->
     Eio.Flow.copy
@@ -433,7 +434,7 @@ We can test it using a mock network:
   let net = Eio_mock.Net.make "mocknet" in
   let socket = Eio_mock.Flow.make "socket" in
   Eio_mock.Net.on_connect net [`Return socket];
-  run_client ~net ~addr:(`Tcp (Eio.Net.Ipaddr.V4.loopback, 8080));; 
+  run_client ~net ~addr:(`Tcp (Eio.Net.Ipaddr.V4.loopback, 8080));;
 +Connecting to server...
 +mocknet: connect to tcp:127.0.0.1:8080
 +socket: wrote "Hello from client"
@@ -555,7 +556,7 @@ Some key features required for a capability system are:
 3. No top-level mutable state.
    In OCaml, if two libraries use a module `Foo` with top-level mutable state, then they could communicate using that
    without first being introduced to each other by the main application code.
-   
+
 4. APIs should make it easy to restrict access.
    For example, having a "directory" should allow access to that sub-tree of the file-system only.
    If the file-system abstraction provides a `get_parent` function then access to any directory is
@@ -629,7 +630,7 @@ open Eio.Buf_read.Syntax
 type message = { src : string; body : string }
 
 let message =
-  let+ src = Eio.Buf_read.(string "FROM:" *> line) 
+  let+ src = Eio.Buf_read.(string "FROM:" *> line)
   and+ body = Eio.Buf_read.take_all in
   { src; body }
 ```
