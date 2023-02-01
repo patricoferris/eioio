@@ -88,7 +88,7 @@ let int_of_thread_type t =
   | Stream -> 18
   | Mutex -> 19
 
-let event_to_string (t : event) = 
+let event_to_string (t : event) =
   match t with
   | Wait -> "wait"
   | Task -> "task"
@@ -117,7 +117,7 @@ let int_to_thread_type = function
   | 2 -> Bind
   | 3 -> Try
   | 4 -> Choose
-  | 5 -> Pick 
+  | 5 -> Pick
   | 6 -> Join
   | 7 -> Map
   | 8 -> Condition
@@ -193,7 +193,7 @@ let labelled_type =
   Runtime_events.Type.register ~encode ~decode
 let failed = Runtime_events.User.register "eio.fail" Failed labelled_type
 type Runtime_events.User.tag += Resolved
-let resolved = Runtime_events.User.(register "eio.resolved" Resolved Runtime_events.Type.counter)
+let resolved = Runtime_events.User.(register "eio.resolved" Resolved Runtime_events.Type.int)
 type Runtime_events.User.tag += Label
 
 let labelled = Runtime_events.User.register "eio.label" Label labelled_type
@@ -201,14 +201,14 @@ let labelled = Runtime_events.User.register "eio.label" Label labelled_type
 type Runtime_events.User.tag += Switch
 type Runtime_events.User.tag += Increase
 let increase = Runtime_events.User.register "eio.increase" Increase labelled_type
-let switch = Runtime_events.User.register "eio.switch" Switch Runtime_events.Type.counter
+let switch = Runtime_events.User.register "eio.switch" Switch Runtime_events.Type.int
 type Runtime_events.User.tag += Value
 let value = Runtime_events.User.register "eio.value" Value labelled_type
 type Runtime_events.User.tag += Signal
 let signal = Runtime_events.User.register "eio.signal" Signal two_ids_type
 
 type Runtime_events.User.tag += Suspend
-let suspend = Runtime_events.User.register "eio.suspend" Suspend Runtime_events.Type.event
+let suspend = Runtime_events.User.register "eio.suspend" Suspend Runtime_events.Type.unit
 
 module Control = struct
   (* Following LTT, our trace buffer is divided into a small number of
@@ -366,5 +366,5 @@ let get_caller () =
   (* Need quite a few frames to escape switch and cancel contexts *)
   let stack = Printexc.get_callstack 20 |> Printexc.raw_backtrace_to_string |> String.split_on_char '\n' in
   match dune_exe_strategy stack with
-  | Some s -> s 
+  | Some s -> s
   | None -> String.concat "\n" stack
