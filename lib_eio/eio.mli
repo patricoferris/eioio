@@ -84,6 +84,9 @@ module Buf_write = Buf_write
 (** Networking. *)
 module Net = Net
 
+(** Subprocesses. *)
+module Process = Process
+
 (** Parallel computation across multiple CPU cores. *)
 module Domain_manager : sig
   class virtual t : object
@@ -180,6 +183,7 @@ module Stdenv : sig
     stdout : Flow.sink;
     stderr : Flow.sink;
     net : Net.t;
+    process_mgr : Process.mgr;
     domain_mgr : Domain_manager.t;
     clock : Time.clock;
     mono_clock : Time.Mono.t;

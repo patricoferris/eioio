@@ -1256,6 +1256,7 @@ type stdenv = <
   stdout : sink;
   stderr : sink;
   net : Eio.Net.t;
+  process_mgr : Eio.Process.mgr;
   domain_mgr : Eio.Domain_manager.t;
   clock : Eio.Time.clock;
   mono_clock : Eio.Time.Mono.t;
@@ -1380,6 +1381,32 @@ let secure_random = object
   method read_into buf = Low_level.getrandom buf; Cstruct.length buf
 end
 
+let get_fd_or_err flow =
+  match get_fd_opt flow with
+  | Some fd -> fd
+  | None -> failwith "TODO: Only flows backed by FDs can be passed to spawn"
+
+let process_mgr = object
+  inherit Eio.Process.mgr
+
+  method spawn ~sw ?cwd ~stdin ~stdout ~stderr cmd args =
+    let stdin = get_fd_or_err stdin |> FD.get_exn "spawn" in
+    let stdout = get_fd_or_err stdout |> FD.get_exn "spawn" in
+    let stderr = get_fd_or_err stderr |> FD.get_exn "spawn" in
+    let cwd = Option.map (fun (_, s) -> Spawn.Working_dir.Path s) cwd in
+    let t = Low_level.Process.spawn ~sw ?cwd ~stdin ~stdout ~stderr cmd args in
+    object
+      inherit Eio.Process.t
+      method pid = t.pid
+      method stop = Low_level.Process.send_signal t Sys.sigkill
+      method await_exit = 
+        match Low_level.Process.await_exit t with
+        | Unix.WEXITED i -> Eio.Process.Exited i
+        | Unix.WSIGNALED i -> Eio.Process.Signaled i
+        | Unix.WSTOPPED i -> Eio.Process.Stopped i
+    end
+end
+
 let stdenv ~run_event_loop =
   let of_unix fd = FD.of_unix_no_hook ~seekable:(FD.is_seekable fd) ~close_unix:true fd in
   let stdin = lazy (source (of_unix Unix.stdin)) in
@@ -1392,6 +1419,7 @@ let stdenv ~run_event_loop =
     method stdout = Lazy.force stdout
     method stderr = Lazy.force stderr
     method net = net
+    method process_mgr = process_mgr
     method domain_mgr = domain_mgr ~run_event_loop
     method clock = clock
     method mono_clock = mono_clock

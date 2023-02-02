@@ -23,6 +23,7 @@ module Flow = Flow
 module Buf_read = Buf_read
 module Buf_write = Buf_write
 module Net = Net
+module Process = Process
 module Domain_manager = Domain_manager
 module Time = Time
 module File = File
@@ -35,6 +36,7 @@ module Stdenv = struct
     stdout : Flow.sink;
     stderr : Flow.sink;
     net : Net.t;
+    process_mgr : Process.mgr;
     domain_mgr : Domain_manager.t;
     clock : Time.clock;
     mono_clock : Time.Mono.t;
