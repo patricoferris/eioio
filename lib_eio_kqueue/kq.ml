@@ -30,12 +30,13 @@ let with_id t fn a = with_id_full t fn a ~extra_data:()
 module Events = struct
   include Kqueue.Event_list.Event
 
-  let singleton ?flags ?filter ?data ident udata =
+  let singleton ?note ?flags ?filter ?data ident udata =
     let evs = Kqueue.Event_list.create 1 in
     let ev = Kqueue.Event_list.get evs 0 in
     Option.iter (Kqueue.Event_list.Event.set_flags ev) flags;
     Option.iter (Kqueue.Event_list.Event.set_filter ev) filter;
     Option.iter (Kqueue.Event_list.Event.set_data ev) data;
+    Option.iter (Kqueue.Event_list.Event.set_fflags ev) note;
     Kqueue.Event_list.Event.set_ident ev ident;
     Kqueue.Event_list.Event.set_udata ev udata;
     evs
@@ -45,10 +46,10 @@ let submit_to_kqueue kq evs =
   let v : int = Kqueue.kevent kq ~changelist:evs ~eventlist:Kqueue.Event_list.null Kqueue.Timeout.immediate in
   assert (v = 0)
 
-let submit ?flags ?filter ?data ?ident t user_data =
+let submit ?note ?flags ?filter ?data ?ident t user_data =
   with_id t (fun ptr ->
       let ident = Option.value ~default:(ptr :> int) ident in
-      let evs = Events.singleton ?flags ?filter ?data ident (ptr :> int) in
+      let evs = Events.singleton ?note ?flags ?filter ?data ident (ptr :> int) in
       let ev = Kqueue.Event_list.get evs 0 in
       submit_to_kqueue t.kq evs;
       Some ev) user_data

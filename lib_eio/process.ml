@@ -18,7 +18,7 @@ type status = Exited of int | Signaled of int | Stopped of int
 
  class virtual mgr = object (_ : #Generic.t)
    method probe _ = None
-   method virtual spawn : sw:Switch.t -> ?cwd:Fs.dir Path.t -> stdin:Flow.source -> stdout:Flow.sink -> stderr:Flow.sink -> string -> string list -> t
+   method virtual spawn : sw:Switch.t -> ?cwd:Fs.dir Path.t -> ?stdin:Flow.source -> ?stdout:Flow.sink -> ?stderr:Flow.sink -> string -> string list -> t
  end
 
- let spawn ~sw t ?cwd ~stdin ~stdout ~stderr cmd args = t#spawn ~sw ?cwd ~stdin ~stdout ~stderr cmd args
+ let spawn ~sw t ?cwd ?stdin ?stdout ?stderr cmd args = t#spawn ~sw ?cwd ?stdin ?stdout ?stderr cmd args

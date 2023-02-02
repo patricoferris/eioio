@@ -919,7 +919,7 @@ module Low_level = struct
     |> List.filter_map to_eio_sockaddr_t
 
     module Process = struct
-      external pidfd_open : int -> Unix.file_descr = "caml_eio_pidfd_open" 
+      external pidfd_open : int -> Unix.file_descr = "caml_eio_pidfd_open"
 
       type t = {
         process : FD.t;
@@ -937,7 +937,7 @@ module Low_level = struct
             Option.iter Switch.remove_hook t.hook;
             t.status <- Some status;
             status
-      
+
       let spawn ?env ?cwd ?stdin ?stdout ?stderr ~sw prog argv =
         let paths = Option.map (fun v -> String.split_on_char ':' v) (Sys.getenv_opt "PATH") |> Option.value ~default:[ "/usr/bin"; "/usr/local/bin" ] in
         let prog = match Eio_unix.Spawn.resolve_program ~paths prog with
@@ -1386,10 +1386,10 @@ let get_fd_or_err flow =
   | Some fd -> fd
   | None -> failwith "TODO: Only flows backed by FDs can be passed to spawn"
 
-let process_mgr = object
+let process_mgr ~stdout ~stderr ~stdin = object
   inherit Eio.Process.mgr
 
-  method spawn ~sw ?cwd ~stdin ~stdout ~stderr cmd args =
+  method spawn ~sw ?cwd ?(stdin=stdin) ?(stdout=stdout) ?(stderr=stderr) cmd args =
     let stdin = get_fd_or_err stdin |> FD.get_exn "spawn" in
     let stdout = get_fd_or_err stdout |> FD.get_exn "spawn" in
     let stderr = get_fd_or_err stderr |> FD.get_exn "spawn" in
@@ -1399,7 +1399,7 @@ let process_mgr = object
       inherit Eio.Process.t
       method pid = t.pid
       method stop = Low_level.Process.send_signal t Sys.sigkill
-      method await_exit = 
+      method await_exit =
         match Low_level.Process.await_exit t with
         | Unix.WEXITED i -> Eio.Process.Exited i
         | Unix.WSIGNALED i -> Eio.Process.Signaled i
@@ -1419,7 +1419,7 @@ let stdenv ~run_event_loop =
     method stdout = Lazy.force stdout
     method stderr = Lazy.force stderr
     method net = net
-    method process_mgr = process_mgr
+    method process_mgr = process_mgr ~stdin:(Lazy.force stdin :> Eio.Flow.source) ~stdout:(Lazy.force stdout :> Eio.Flow.sink) ~stderr:(Lazy.force stderr :> Eio.Flow.sink)
     method domain_mgr = domain_mgr ~run_event_loop
     method clock = clock
     method mono_clock = mono_clock

@@ -154,6 +154,7 @@ type io_job =
   | Accept : Switch.t * (FD.t * Unix.sockaddr) Suspended.t -> io_job
   | Connect : unit Suspended.t -> io_job
   | Clock : unit Suspended.t -> io_job
+  | Proc_exited : Unix.process_status Suspended.t -> io_job
 
 type _ Effect.t += Cancel : (io_job Heap.entry * exn * Kq.Events.t) -> unit Effect.t
 
@@ -202,6 +203,7 @@ let discontinue_io st exn = function
   | Accept (_, k) -> enqueue_failed_thread st k exn
   | Connect k -> enqueue_failed_thread st k exn
   | Clock k -> enqueue_failed_thread st k exn
+  | Proc_exited k -> enqueue_failed_thread st k exn
 
 let with_cancel_hook ~action st fn =
   match Fiber_context.get_error action.Suspended.fiber with
@@ -315,6 +317,50 @@ module Low_level = struct
   let arc4random { Cstruct.buffer; off; len } =
     let got = eio_arc4random buffer off len in
     assert (len = got)
+
+    module Process = struct
+      type t = {
+        pid : int;
+        mutable hook : Switch.hook option;
+        mutable status : Unix.process_status option;
+      }
+
+      let await_process_exit pid =
+        enter @@ fun st action ->
+        Atomic.incr st.pending_io;
+        let retry = with_cancel_hook ~action st (fun () ->
+            let flags = Kqueue.Flag.(add + oneshot) in
+            let filter = Kqueue.Filter.proc in
+            let note = Kqueue.Note.exit in
+            Kq.submit ~note ~flags ~filter ~ident:pid st.kqueue (Proc_exited action)
+          ) in
+        if retry then Eio.traceln "TODO: retry"
+
+      let await_exit t =
+        match t.status with
+          | Some status -> status
+          | None ->
+            let status = await_process_exit t.pid in
+            Option.iter Switch.remove_hook t.hook;
+            t.status <- Some status;
+            status
+
+      let spawn ?env ?cwd ?stdin ?stdout ?stderr ~sw prog argv =
+        let paths = Option.map (fun v -> String.split_on_char ':' v) (Sys.getenv_opt "PATH") |> Option.value ~default:[ "/usr/bin"; "/usr/local/bin" ] in
+        let prog = match Eio_unix.Spawn.resolve_program ~paths prog with
+          | Some prog -> prog
+          | None -> raise (Eio.Fs.err (Eio.Fs.Not_found (Eio_unix.Unix_error (Unix.ENOENT, "", ""))))
+        in
+        let pid = Eio_unix.Spawn.spawn ?env ?cwd ?stdin ?stdout ?stderr ~prog ~argv () in
+        let t = { pid; hook = None; status = None } in
+        let hook = Switch.on_release_cancellable sw (fun () ->
+          Unix.kill pid Sys.sigkill; ignore (await_exit t)
+        ) in
+        t.hook <- Some hook;
+        t
+
+        let send_signal t i = Unix.kill t.pid i
+    end
 end
 
 let fallback_copy src dst =
@@ -371,6 +417,9 @@ let flow_null fd =
     method unix_fd op = FD.to_unix op fd
   end
 
+type _ Eio.Generic.ty += FD : FD.t Eio.Generic.ty
+let get_fd_opt t = Eio.Generic.probe t FD
+
 let flow fd =
   object (_ : <Flow.source; Flow.sink; ..>)
     method fd = fd
@@ -379,7 +428,7 @@ let flow fd =
     method stat = FD.fstat fd
 
     method probe : type a. a Eio.Generic.ty -> a option = function
-      (* | FD -> Some fd *)
+      | FD -> Some fd
       | Eio_unix.Private.Unix_file_descr op -> Some (FD.to_unix op fd)
       | _ -> None
 
@@ -559,6 +608,13 @@ and complete_io st ((event, ready) : io_job Kq.ready) = match ready with
       Fiber_context.clear_cancel_fn k.fiber;
       check_for_error st k event;
       enqueue_thread st k ();
+      Atomic.decr st.pending_io
+    )
+  | Proc_exited k -> (
+      Fiber_context.clear_cancel_fn k.fiber;
+      check_for_error st k event;
+      let pid = Kq.Events.get_ident event in
+      enqueue_thread st k (Unix.waitpid [] pid |> snd);
       Atomic.decr st.pending_io
     )
 
@@ -818,6 +874,7 @@ type stdenv = <
   stdout : Flow.sink;
   stderr : Flow.sink;
   net : Eio.Net.t;
+  process_mgr : Eio.Process.mgr;
   domain_mgr : Eio.Domain_manager.t;
   clock : Eio.Time.clock;
   mono_clock : Eio.Time.Mono.t;
@@ -906,6 +963,32 @@ let secure_random = object
   method read_into buf = Low_level.arc4random buf; Cstruct.length buf
 end
 
+let get_fd_or_err flow =
+  match get_fd_opt flow with
+  | Some fd -> fd
+  | None -> failwith "TODO: Only flows backed by FDs can be passed to spawn"
+
+let process_mgr ~stdin ~stdout ~stderr = object
+  inherit Eio.Process.mgr
+
+  method spawn ~sw ?cwd ?(stdin=stdin) ?(stdout=stdout) ?(stderr=stderr) cmd args =
+    let stdin = get_fd_or_err stdin |> FD.get_exn "spawn" in
+    let stdout = get_fd_or_err stdout |> FD.get_exn "spawn" in
+    let stderr = get_fd_or_err stderr |> FD.get_exn "spawn" in
+    let cwd = Option.map (fun (_, s) -> Spawn.Working_dir.Path s) cwd in
+    let t = Low_level.Process.spawn ~sw ?cwd ~stdin ~stdout ~stderr cmd args in
+    object
+      inherit Eio.Process.t
+      method pid = t.pid
+      method stop = Low_level.Process.send_signal t Sys.sigkill
+      method await_exit =
+        match Low_level.Process.await_exit t with
+        | Unix.WEXITED i -> Eio.Process.Exited i
+        | Unix.WSIGNALED i -> Eio.Process.Signaled i
+        | Unix.WSTOPPED i -> Eio.Process.Stopped i
+    end
+end
+
 let stdenv ~run_event_loop =
   let of_unix fd = FD.of_unix_no_hook ~seekable:(FD.is_seekable fd) ~close_unix:true fd in
   let stdout = lazy (flow (of_unix Unix.stdout)) in
@@ -916,6 +999,7 @@ let stdenv ~run_event_loop =
     method stdout = (Lazy.force stdout :> Flow.sink)
     method stderr = (Lazy.force stderr :> Flow.sink)
     method net = net
+    method process_mgr = process_mgr ~stdin:(Lazy.force stdin :> Flow.source) ~stdout:(Lazy.force stdout :> Flow.sink) ~stderr:(Lazy.force stderr :> Flow.sink)
     method domain_mgr = domain_mgr ~run_event_loop
     method clock = clock
     method mono_clock = mono_clock
