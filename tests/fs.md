@@ -378,8 +378,7 @@ Reading directory entries under `cwd` and outside of `cwd`.
 
 Can use `fs` to access absolute paths:
 
-<!-- TODO: /dev/null not supported by macOS kqueues :( -->
-```
+```ocaml
 # run @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
   let fs = Eio.Stdenv.fs env in

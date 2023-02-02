@@ -147,7 +147,7 @@ type _ Effect.t += Sleep_until : Mtime.t -> unit Effect.t
 let sleep_until d = Effect.perform (Sleep_until d)
 
 type io_job =
-  | Read : Cstruct.t * (int * bool) Suspended.t -> io_job
+  | Read : Optint.Int63.t option * Cstruct.t * (int * bool) Suspended.t -> io_job
   | Writev : Cstruct.t list * unit Suspended.t -> io_job
   | Recv_msg : Cstruct.t * (Unix.sockaddr * int) Suspended.t -> io_job
   | Send_msg : Unix.sockaddr * Cstruct.t * unit Suspended.t -> io_job
@@ -195,7 +195,7 @@ let enqueue_at_head st k v =
   if Atomic.get st.need_wakeup then wakeup st
 
 let discontinue_io st exn = function
-  | Read (_, k) -> enqueue_failed_thread st k exn
+  | Read (_, _, k) -> enqueue_failed_thread st k exn
   | Writev (_, k) -> enqueue_failed_thread st k exn
   | Recv_msg (_, k) -> enqueue_failed_thread st k exn
   | Send_msg (_, _, k) -> enqueue_failed_thread st k exn
@@ -240,14 +240,14 @@ module Low_level = struct
     let fd = wrap_unix_fn (fun () -> Unix.openfile path (Unix.O_NONBLOCK :: file_flags) perms) in
     FD.of_unix ~sw ~seekable:true ~close_unix:true fd
 
-  let read fd buff : int * bool =
+  let read ?off fd buff : int * bool =
     let fd = FD.get_exn "read" fd in
     enter @@ fun st action ->
     Atomic.incr st.pending_io;
     let retry = with_cancel_hook ~action st (fun () ->
         let flags = Kqueue.Flag.(add + oneshot) in
         let filter = Kqueue.Filter.read in
-        Kq.submit ~flags ~filter ~ident:(Kq.Ident.of_fd fd) st.kqueue (Read (buff, action))
+        Kq.submit ~flags ~filter ~ident:(Kq.Ident.of_fd fd) st.kqueue (Read (off, buff, action))
       ) in
     if retry then Eio.traceln "TODO: retry"
 
@@ -330,6 +330,47 @@ let fallback_copy src dst =
   in
   fallback ()
 
+let flow_null fd =
+  object (_ : <Flow.source; Flow.sink; ..>)
+    method fd = fd
+    method close = FD.close fd
+
+    method stat = FD.fstat fd
+
+    method probe : type a. a Eio.Generic.ty -> a option = function
+      (* | FD -> Some fd *)
+      | Eio_unix.Private.Unix_file_descr op -> Some (FD.to_unix op fd)
+      | _ -> None
+
+    val mutable eof = false
+
+    method read_into _buf = raise End_of_file
+
+    method pread ~file_offset:_ _bufs = raise End_of_file
+
+    method pwrite ~file_offset:_ _bufs = ()
+
+    method read_methods = []
+
+    method write bufs = Unix_cstruct.writev (FD.get_exn "write_blocking" fd) bufs
+
+    method copy src =
+      let rec aux = function
+        | Eio.Flow.Read_source_buffer _rsb :: _ -> failwith "RSB"
+        | _ :: xs -> aux xs
+        | [] -> fallback_copy src fd
+      in
+      aux (Eio.Flow.read_methods src)
+
+    method shutdown cmd =
+      Unix.shutdown (FD.get_exn "shutdown" fd) @@ match cmd with
+      | `Receive -> Unix.SHUTDOWN_RECEIVE
+      | `Send -> Unix.SHUTDOWN_SEND
+      | `All -> Unix.SHUTDOWN_ALL
+
+    method unix_fd op = FD.to_unix op fd
+  end
+
 let flow fd =
   object (_ : <Flow.source; Flow.sink; ..>)
     method fd = fd
@@ -351,7 +392,13 @@ let flow fd =
       else if got > 0 && end_of_file then (eof <- end_of_file; got)
       else got
 
-    method pread ~file_offset:_ _bufs = failwith "TODO PREAD"
+    method pread ~file_offset bufs =
+      if eof then raise End_of_file;
+      (* Quick hack for compilation, todo REMOVE! *)
+      let got, end_of_file = Low_level.read ~off:file_offset fd (Cstruct.concat bufs) in
+      if got = 0 then raise End_of_file
+      else if got > 0 && end_of_file then (eof <- end_of_file; got)
+      else got
 
     method pwrite ~file_offset:_ _bufs = failwith "TODO PWRITE"
 
@@ -439,11 +486,14 @@ and check_for_error : 'a. t -> 'a Suspended.t -> Kq.Events.t -> unit = fun st k 
   end else ()
 
 and complete_io st ((event, ready) : io_job Kq.ready) = match ready with
-  | Read (buff, k) ->
+  | Read (off, buff, k) ->
     Fiber_context.clear_cancel_fn k.fiber;
     check_for_error st k event;
     let fd = Kqueue.Util.file_descr_of_int (Kq.Events.get_ident event) in
-    let got = Unix_cstruct.read fd buff in
+    let got = match off with
+     | None -> Unix_cstruct.read fd buff
+     | Some off -> Unix_cstruct.pread ~off fd buff
+    in
     if check_read_eof ~got event then begin
       enqueue_thread st k (got, true);
       Atomic.decr st.pending_io
@@ -694,11 +744,13 @@ class dir ~label (dir_path : string) = object (self)
       Filename.concat dir leaf
 
   method open_in ~sw path =
-    let fd = Low_level.open_ ~sw (self#resolve path)
+    let resolved = self#resolve path in
+    let fd = Low_level.open_ ~sw resolved
         ~access:`R
         ~flags:[ Unix.O_CLOEXEC; Unix.O_RDONLY ]
         ~perms:0
     in
+    if resolved = "/dev/null" then (flow_null fd :> <Eio.File.ro; Eio.Flow.close>) else
     (flow fd :> <Eio.File.ro; Eio.Flow.close>)
 
   method open_out ~sw ~append ~create path =
