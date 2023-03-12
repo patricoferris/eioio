@@ -2,7 +2,13 @@ open Eio.Std
 open Brr
 
 let () =
-  let counter = Brr.Document.find_el_by_id G.document Jstr.(v "counter") |> Option.get in
+  let p =
+    Eio_browser.run @@ fun () ->
+    Eio_browser.Timeout.sleep ~ms:2000;
+    Console.log [ Jstr.v "EEEE" ]
+  in
+  Fut.await p (fun () -> Console.log [Jstr.v "Scheduler done"])
+  (* let counter = Brr.Document.find_el_by_id G.document Jstr.(v "counter") |> Option.get in
   let text = Brr.Document.find_el_by_id G.document Jstr.(v "text") |> Option.get in
   let output = Brr.Document.find_el_by_id G.document Jstr.(v "output") |> Option.get in
   let main =
@@ -26,4 +32,4 @@ let () =
          done
       )
   in
-  Fut.await main (fun _ -> Brr.Console.log [ Jstr.v "Done" ])
+  Fut.await main (fun _ -> Brr.Console.log [ Jstr.v "Done" ]) *)
