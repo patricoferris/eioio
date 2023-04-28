@@ -1,3 +1,4 @@
 pin-depends: [
+  [ "cstruct.dev" "git+https://github.com/djs55/ocaml-cstruct#471ca03b49b3a372945fcf13c89e0447a8bd3932" ]
   [ "cstruct-unix.dev" "git+https://github.com/djs55/ocaml-cstruct#471ca03b49b3a372945fcf13c89e0447a8bd3932" ]
 ]
