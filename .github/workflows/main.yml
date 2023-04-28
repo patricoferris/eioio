@@ -49,7 +49,7 @@ jobs:
             dra27: https://github.com/dra27/opam-repository.git#windows-5.0
             normal: https://github.com/ocaml/opam-repository.git
             default: https://github.com/ocaml-opam/opam-repository-mingw.git#opam2
-      - run: opam pin -yn . && opam install eio_windows --deps-only --with-test
+      - run: opam pin -yn . --with-version=dev && opam install eio_windows --deps-only --with-test
       - run: opam exec -- dune runtest
   docker:
     runs-on: ubuntu-latest
