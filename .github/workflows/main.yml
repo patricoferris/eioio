@@ -4,6 +4,9 @@ on:
   pull_request:
   push:
 
+env:
+  OCAMLRUNPARAM: b
+
 jobs:
   build:
     strategy:
@@ -56,7 +59,7 @@ jobs:
           opam pin -yn eio_windows.dev .
           opam install ocamlfind.1.9.5 alcotest mdx crowbar -y
           opam install eio eio_windows --deps-only
-      - run: OCAMLRUNPARAM=b opam exec -- dune runtest
+      - run: opam exec -- dune runtest
   docker:
     runs-on: ubuntu-latest
     steps:
