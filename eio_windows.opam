@@ -31,6 +31,7 @@ build: [
 ]
 dev-repo: "git+https://github.com/ocaml-multicore/eio.git"
 pin-depends: [
+  [ "mdx.dev" "git+https://github.com/Julow/mdx#796739eecb1c74409b3c63993dc4621ca5ee9055"]
   # Removes base bytes for crowbar
   [ "ocplib-endian.dev" "git+https://github.com/Leonidas-from-XIV/ocplib-endian#fda4d5525063c8444020be369c63de23d39c246e" ]
   # Needed for the cstruct read and writes without copying
