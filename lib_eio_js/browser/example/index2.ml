@@ -1,22 +1,29 @@
-open Js_of_ocaml
+open Brr
+
+let get_element_by_id s =
+  Document.find_el_by_id G.document (Jstr.v s) |> Option.get
 
 let eio_callback =
   let t = ref 0 in
   fun _ ->
     incr t;
     let rec aux t =
-      let p = Dom_html.createP Dom_html.document in
-      p##.innerHTML := Js.string (string_of_int t);
-      Dom.appendChild Dom_html.window##.document##.body p;
+      let p = El.p [ El.txt' (string_of_int t) ] in
+      El.append_children (Document.body G.document) [ p ];
       Eio_browser.Timeout.sleep ~ms:(t*1000);
       aux t
     in
     aux !t
 
 let () =
-  let clickable = Js_of_ocaml.Dom_html.getElementById "clickable" in
-  clickable##.onclick :=
-    Dom_html.handler (Eio_browser.wrap_callback eio_callback);
-  Js_of_ocaml.Firebug.console##log "Running main event loop";
-  let main = Eio_browser.run Eio_browser.run_callbacks in
-  Fut.await main (fun _ -> Js_of_ocaml.Firebug.console##log "Should not happen")
+  let other = get_element_by_id "other" in
+  let clickable = get_element_by_id "clickable" in
+  let _ : Ev.listener = Eio_browser.listen Ev.click eio_callback (El.as_target clickable) in
+  Console.(log [ str "Running main event loop" ]);
+  let main = Eio_browser.run @@ fun () ->
+    while true do
+      El.append_children other [ El.txt' "Append" ];
+      Eio_browser.Timeout.sleep ~ms:1000
+    done
+  in
+  Fut.await main (fun _ -> Console.(log [ str "Should not happen" ]))

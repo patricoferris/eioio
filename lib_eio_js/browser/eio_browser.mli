@@ -23,6 +23,13 @@ val run_callbacks : (unit -> unit)
     It must be called at the end of your main loop
     if you want to use Eio inside event handlers. *)
 
+val listen :
+    ?opts:Brr.Ev.listen_opts ->
+    'a Brr.Ev.type' -> ('a Brr.Ev.t -> unit) -> Brr.Ev.target -> Brr.Ev.listener
+(** Identical to {! Brr.Ev.listen} except the callback for the event listener
+    can perform asynchronous actions (i.e. perform effects) and they will be
+    handled properly. *)
+
 val wrap_callback : ('a -> unit) -> 'a -> bool Js_of_ocaml.Js.t
 (** Callbacks must be wrapped with [wrap_callback]
     if you want to use Eio from inside.
