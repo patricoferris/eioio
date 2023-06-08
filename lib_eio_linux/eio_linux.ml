@@ -348,8 +348,8 @@ let with_dir dir_fd path fn =
 
 module Process_mgr = struct
   module T = struct
-    type t = unit 
-    
+    type t = unit
+
     let spawn_unix () ~sw ?cwd ~env ~fds ~executable args =
       let actions = Low_level.Process.Fork_action.[
           Eio_unix.Private.Fork_action.inherit_fds fds;
@@ -582,7 +582,7 @@ let stdenv ~run_event_loop =
     method backend_id = "linux"
   end
 
-let run_event_loop (type a) ?fallback config (main : _ -> a) arg : a =
+let run_event_loop ?loc (type a) ?fallback config (main : _ -> a) arg : a =
   Sched.with_sched ?fallback config @@ fun st ->
   let open Effect.Deep in
   let extra_effects : _ effect_handler = {
@@ -632,11 +632,11 @@ let run_event_loop (type a) ?fallback config (main : _ -> a) arg : a =
         )
       | _ -> None
   } in
-  Sched.run ~extra_effects st main arg
+  Sched.run ?loc ~extra_effects st main arg
 
-let run ?queue_depth ?n_blocks ?block_size ?polling_timeout ?fallback main =
+let run ?loc ?queue_depth ?n_blocks ?block_size ?polling_timeout ?fallback main =
   let config = Sched.config ?queue_depth ?n_blocks ?block_size ?polling_timeout () in
-  let stdenv = stdenv ~run_event_loop:(run_event_loop ?fallback:None config) in
+  let stdenv = stdenv ~run_event_loop:(fun ?loc -> run_event_loop ?loc ?fallback:None config) in
   (* SIGPIPE makes no sense in a modern application. *)
   Sys.(set_signal sigpipe Signal_ignore);
-  run_event_loop ?fallback config main stdenv
+  run_event_loop ?loc ?fallback config main stdenv
