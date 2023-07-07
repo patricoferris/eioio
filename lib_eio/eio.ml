@@ -23,7 +23,7 @@ module File = File
 module Fs = Fs
 module Path = Path
 
-module Ctf = struct
+module Tracing = struct
   let with_tracing fn =
     Tracing.Control.start ();
     Fun.protect ~finally:Tracing.Control.stop fn
