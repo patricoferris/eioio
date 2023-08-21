@@ -27,35 +27,23 @@ module Stat = struct
     | `Socket -> Fmt.string ppf "socket"
 
   type 'a f =
-  | Dev : int64 f
-  | Ino : int64 f
-  | Kind : kind f
-  | Perm : int f
-  | Nlink : int64 f
-  | Uid : int64 f
-  | Gid : int64 f
-  | Rdev : int64 f
-  | Size : int64 f
-  | Atime : float f
-  | Ctime : float f
-  | Mtime : float f
+    | Dev : int64 f
+    | Ino : int64 f
+    | Kind : kind f
+    | Perm : int f
+    | Nlink : int64 f
+    | Uid : int64 f
+    | Gid : int64 f
+    | Rdev : int64 f
+    | Size : int64 f
+    | Atime : float f
+    | Ctime : float f
+    | Mtime : float f
 
   type ('a, 'ty) t =
     | [] : ('ty, 'ty) t
     | (::) : 'a f * ('b, 'ty) t -> ('a -> 'b, 'ty) t
 
-  let dev = Dev
-  let ino = Ino
-  let kind = Kind
-  let perm = Perm
-  let nlink = Nlink
-  let uid = Uid
-  let gid = Gid
-  let rdev = Rdev
-  let size = Size
-  let atime = Atime
-  let ctime = Ctime
-  let mtime = Mtime
 end
 
 type ro_ty = [`File | Flow.source_ty | Resource.close_ty]
@@ -105,8 +93,14 @@ let stat (Resource.T (t, ops)) =
   let module X = (val (Resource.get ops Pi.Read)) in
   X.stat t
 
-let size t =
-  stat t [Stat.size] (fun s -> Optint.Int63.of_int64 s)
+let kind t  = stat t [Stat.Kind] Fun.id
+let perm t  = stat t [Stat.Perm] Fun.id
+let uid t   = stat t [Stat.Uid] Fun.id
+let gid t   = stat t [Stat.Gid] Fun.id
+let size t  = stat t [Stat.Size] (fun s -> Optint.Int63.of_int64 s)
+let atime t = stat t [Stat.Atime] Fun.id
+let ctime t = stat t [Stat.Ctime] Fun.id
+let mtime t = stat t [Stat.Mtime] Fun.id
 
 let pread (Resource.T (t, ops)) ~file_offset bufs =
   let module X = (val (Resource.get ops Pi.Read)) in

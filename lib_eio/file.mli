@@ -42,18 +42,6 @@ module Stat : sig
     | [] : ('ty, 'ty) t
     | (::) : 'a f * ('b, 'ty) t -> ('a -> 'b, 'ty) t
 
-  val dev   : int64 f
-  val ino   : int64 f
-  val kind  : kind f
-  val perm  : int f
-  val nlink : int64 f
-  val uid   : int64 f
-  val gid   : int64 f
-  val rdev  : int64 f
-  val size  : int64 f
-  val atime : float f
-  val ctime : float f
-  val mtime : float f
 end
 
 type ro_ty = [`File | Flow.source_ty | Resource.close_ty]
@@ -93,11 +81,59 @@ end
 
 val stat : _ ro -> ('a, 'b) Stat.t -> 'a -> 'b
 (** [stat t fields fn] will retrieve the file statistics for the specified
-    [fields] and apply them as arguments to [fn]. *)
+    [fields] and apply them as arguments to [fn].
+
+    For example, to print the kind of a file along with its size and last
+    modified time:
+
+    {[ File.stat t File.Stat.[ Kind; Size; Mtime ]
+        (fun kind size mtime ->
+          traceln "kind: %a size: %Ld mtime: %f"
+            File.Stat.pp_kind size mtime)
+     ]}
+   *)
+
+val kind : _ ro -> Stat.kind
+(** [kind t] returns the kind of file that [t] is.
+    Equivalent to [stat t [File.Kind] Fun.id],
+    so use {!stat} to query multiple items from a file in one call. *)
 
 val size : _ ro -> Optint.Int63.t
-(** [size t] returns the size of [t].
-    Equivalent to [stat t [File.size] Fun.id]. *)
+(** [size t] returns the size of [t]. Equivalent to [stat t [File.size] Fun.id],
+    so use {!stat} to query multiple items from a file in one call. *)
+
+val perm : _ ro -> int
+(** [perm t] returns the file permissions of [t].
+    Equivalent to [stat t [File.Perm] Fun.id],
+    so use {!stat} to query multiple items from a file in one call. *)
+
+val uid : _ ro -> int64
+(** [uid t] returns the user id associated with [t].
+    Equivalent to [stat t [File.Uid] Fun.id],
+    so use {!stat} to query multiple items from a file in one call. *)
+
+val gid : _ ro -> int64
+(** [gid t] returns the group id associated with [t].
+    Equivalent to [stat t [File.Gid] Fun.id],
+    so use {!stat} to query multiple items from a file in one call. *)
+
+val atime : _ ro -> float
+(** [atime t] returns the last access time of [t] as the seconds
+    since the start of the epoch.
+    Equivalent to [stat t [File.Atime] Fun.id],
+    so use {!stat} to query multiple items from a file in one call. *)
+
+val mtime : _ ro -> float
+(** [mtime t] returns the last modified time of [t] as the seconds
+    since the start of the epoch.
+    Equivalent to [stat t [File.Mtime] Fun.id],
+    so use {!stat} to query multiple items from a file in one call. *)
+
+val ctime : _ ro -> float
+(** [ctime t] returns the creation time of [t] as the seconds
+    since the start of the epoch.
+    Equivalent to [stat t [File.Ctime] Fun.id],
+    so use {!stat} to query multiple items from a file in one call. *)
 
 val pread : _ ro -> file_offset:Optint.Int63.t -> Cstruct.t list -> int
 (** [pread t ~file_offset bufs] performs a single read of [t] at [file_offset] into [bufs].

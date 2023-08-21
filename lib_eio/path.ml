@@ -69,6 +69,15 @@ let stat ~follow t =
     let bt = Printexc.get_raw_backtrace () in
     Exn.reraise_with_context ex bt "examining %a" pp t
 
+let kind  ~follow t = stat ~follow t [File.Stat.Kind] Fun.id
+let size  ~follow t = stat ~follow t [File.Stat.Size] Fun.id
+let perm  ~follow t = stat ~follow t [File.Stat.Perm] Fun.id
+let uid   ~follow t = stat ~follow t [File.Stat.Uid] Fun.id
+let gid   ~follow t = stat ~follow t [File.Stat.Gid] Fun.id
+let atime ~follow t = stat ~follow t [File.Stat.Atime] Fun.id
+let mtime ~follow t = stat ~follow t [File.Stat.Mtime] Fun.id
+let ctime ~follow t = stat ~follow t [File.Stat.Ctime] Fun.id
+
 let with_open_in path fn =
   Switch.run @@ fun sw -> fn (open_in ~sw path)
 

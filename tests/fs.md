@@ -62,7 +62,7 @@ let chdir path =
 
 let assert_kind path kind =
   Path.with_open_in path @@ fun file ->
-  assert (Eio.File.(stat file [Stat.kind] ((=) kind)))
+  assert (Eio.File.kind file = kind)
 ```
 
 # Basic test cases
@@ -541,7 +541,7 @@ Fstatat:
   let cwd = Eio.Stdenv.cwd env in
   Switch.run @@ fun sw ->
   try_mkdir (cwd / "stat_subdir2");
-  Eio.Path.stat ~follow:true (cwd / "stat_subdir2") [Eio.File.Stat.kind] Fun.id
+  Eio.Path.kind ~follow:true (cwd / "stat_subdir2")
 +mkdir <cwd:stat_subdir2> -> ok
 - : Eio.File.Stat.kind = `Directory
 ```

@@ -134,7 +134,92 @@ val stat : follow:bool -> _ t -> ('a, 'b) File.Stat.t -> 'a -> 'b
 (** [stat ~follow t] returns metadata about the file [t].
 
     If [t] is a symlink, the information returned is about the target if [follow = true],
-    otherwise it is about the link itself. *)
+    otherwise it is about the link itself.
+
+    For example, to follow a symlink and print the kind, size and last modified
+    time of its target:
+
+    {[ Path.stat ~follow:true t File.Stat.[ Kind; Size; Mtime ]
+        (fun kind size mtime ->
+          traceln "kind: %a size: %Ld mtime: %f"
+            File.Stat.pp_kind size mtime)
+     ]}
+  *)
+
+val kind : follow:bool -> _ t -> File.Stat.kind
+(** [kind ~follow t] returns the kind of file that [t] is.
+
+    If [t] is a symlink, the information returned is about the target if [follow = true],
+    otherwise it is about the link itself.
+
+    Equivalent to [stat ~follow t [File.Kind] Fun.id],
+    so use {!stat} to query multiple items from a file in one call. *)
+
+val size : follow:bool -> _ t -> int64
+(** [size ~follow t] returns the size of [t].
+
+    If [t] is a symlink, the information returned is about the target if [follow = true],
+    otherwise it is about the link itself.
+
+    Equivalent to [stat ~follow t [File.size] Fun.id],
+    so use {!stat} to query multiple items from a file in one call. *)
+
+val perm : follow:bool -> _ t -> int
+(** [perm ~follow t] returns the file permissions of [t].
+
+    If [t] is a symlink, the information returned is about the target if [follow = true],
+    otherwise it is about the link itself.
+
+    Equivalent to [stat ~follow t [File.Perm] Fun.id],
+    so use {!stat} to query multiple items from a file in one call. *)
+
+val uid : follow:bool -> _ t -> int64
+(** [uid ~follow t] returns the user id associated with [t].
+
+    If [t] is a symlink, the information returned is about the target if [follow = true],
+    otherwise it is about the link itself.
+
+    Equivalent to [stat ~follow t [File.Uid] Fun.id],
+    so use {!stat} to query multiple items from a file in one call. *)
+
+val gid : follow:bool -> _ t -> int64
+(** [gid ~follow t] returns the group id associated with [t].
+
+    If [t] is a symlink, the information returned is about the target if [follow = true],
+    otherwise it is about the link itself.
+
+    Equivalent to [stat ~follow t [File.Gid] Fun.id],
+    so use {!stat} to query multiple items from a file in one call. *)
+
+val atime : follow:bool -> _ t -> float
+(** [atime ~follow t] returns the last access time of [t] as the seconds
+    since the start of the epoch.
+
+    If [t] is a symlink, the information returned is about the target if [follow = true],
+    otherwise it is about the link itself.
+
+    Equivalent to [stat ~follow t [File.Atime] Fun.id],
+    so use {!stat} to query multiple items from a file in one call. *)
+
+val mtime : follow:bool -> _ t -> float
+(** [mtime ~follow t] returns the last modified time of [t] as the seconds
+    since the start of the epoch.
+
+    If [t] is a symlink, the information returned is about the target if [follow = true],
+    otherwise it is about the link itself.
+
+    Equivalent to [stat ~follow t [File.Mtime] Fun.id],
+    so use {!stat} to query multiple items from a file in one call. *)
+
+val ctime : follow:bool -> _ t -> float
+(** [ctime t] returns the creation time of [t] as the seconds
+    since the start of the epoch.
+
+    If [t] is a symlink, the information returned is about the target if [follow = true],
+    otherwise it is about the link itself.
+
+    Equivalent to [stat ~follow t [File.Ctime] Fun.id],
+    so use {!stat} to query multiple items from a file in one call. *)
 
 (** {1 Other} *)
 
