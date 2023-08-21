@@ -303,35 +303,59 @@ let openat ~sw ?seekable ~access ~flags ~perm dir path =
   | Cwd -> openat2 ~sw ?seekable ~access ~flags ~perm ~resolve:Uring.Resolve.beneath path
   | Fs -> openat2 ~sw ?seekable ~access ~flags ~perm ~resolve:Uring.Resolve.empty path
 
-let fstat t =
-  (* todo: use uring  *)
-  try
-    let ust = Fd.use_exn "fstat" t Unix.LargeFile.fstat in
-    let st_kind : Eio.File.Stat.kind =
-      match ust.st_kind with
-      | Unix.S_REG  -> `Regular_file
-      | Unix.S_DIR  -> `Directory
-      | Unix.S_CHR  -> `Character_special
-      | Unix.S_BLK  -> `Block_device
-      | Unix.S_LNK  -> `Symbolic_link
-      | Unix.S_FIFO -> `Fifo
-      | Unix.S_SOCK -> `Socket
-    in
-    Eio.File.Stat.{
-      dev     = ust.st_dev   |> Int64.of_int;
-      ino     = ust.st_ino   |> Int64.of_int;
-      kind    = st_kind;
-      perm    = ust.st_perm;
-      nlink   = ust.st_nlink |> Int64.of_int;
-      uid     = ust.st_uid   |> Int64.of_int;
-      gid     = ust.st_gid   |> Int64.of_int;
-      rdev    = ust.st_rdev  |> Int64.of_int;
-      size    = ust.st_size  |> Optint.Int63.of_int64;
-      atime   = ust.st_atime;
-      mtime   = ust.st_mtime;
-      ctime   = ust.st_ctime;
-    }
-  with Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap_fs code name arg
+let float_of_time s ns = Int64.to_float s +. (float ns /. 1e9)
+
+let statx ?buf ?fd ?(flags=Uring.Statx.Flags.empty) path f k =
+  let module X = Uring.Statx in
+  let module M = Uring.Statx.Mask in
+  let module U = Eio.File.Stat in
+  let rec mask : type a b . (a,b) U.t -> M.t -> M.t = fun v acc ->
+    match v with
+    | U.Dev :: tl -> mask tl acc
+    | U.Ino :: tl -> mask tl M.(acc + M.ino)
+    | U.Kind :: tl -> mask tl M.(acc + M.type')
+    | U.Perm :: tl -> mask tl M.(acc + M.mode)
+    | U.Nlink :: tl -> mask tl M.(acc + M.nlink)
+    | U.Uid :: tl -> mask tl M.(acc + M.uid)
+    | U.Gid :: tl -> mask tl M.(acc + M.gid)
+    | U.Rdev :: tl -> mask tl acc
+    | U.Size :: tl -> mask tl M.(acc + M.size)
+    | U.Atime :: tl -> mask tl M.(acc + M.atime)
+    | U.Ctime :: tl -> mask tl M.(acc + M.ctime)
+    | U.Mtime :: tl -> mask tl M.(acc + M.mtime)
+    | [] -> acc
+  in
+  let mask = mask f M.type' in (* TODO this could be empty as well, but needs uring#100 *)
+  let statx = match buf with None -> Uring.Statx.create () | Some t -> t in
+  let res = match fd with
+    | Some fd ->
+      Fd.use_exn "fstat" fd @@ fun fd ->
+      Sched.enter (enqueue_statx (Some fd, path, statx, flags, mask))
+    | None-> Sched.enter (enqueue_statx (None, path, statx, flags, mask))
+  in
+  if res <> 0 then raise @@ Err.wrap_fs (Uring.error_of_errno res) "statx" "";
+  let rec fn : type a b. (a, b) U.t -> a -> b = fun v acc ->
+    match v with
+    | U.Dev :: tl -> fn tl @@ acc (X.dev statx)
+    | U.Ino :: tl -> fn tl @@ acc (X.ino statx)
+    | U.Kind :: tl -> fn tl @@ acc (X.kind statx)
+    | U.Perm :: tl -> fn tl @@ acc (X.perm statx)
+    | U.Nlink :: tl -> fn tl @@ acc (X.nlink statx)
+    | U.Uid :: tl -> fn tl @@ acc (X.uid statx)
+    | U.Gid :: tl -> fn tl @@ acc (X.gid statx)
+    | U.Rdev :: tl -> fn tl @@ acc (X.rdev statx)
+    | U.Size :: tl -> fn tl @@ acc (X.size statx)
+    | U.Atime :: tl -> fn tl @@ acc (float_of_time (X.atime_sec statx) (X.atime_nsec statx))
+    | U.Mtime :: tl -> fn tl @@ acc (float_of_time (X.mtime_sec statx) (X.mtime_nsec statx))
+    | U.Ctime :: tl -> fn tl @@ acc (float_of_time (X.ctime_sec statx) (X.ctime_nsec statx))
+    | [] -> acc
+in
+fn f k
+
+let stat dir_fd ?flags path f k =
+  match dir_fd with
+  | FD fd -> statx ~fd ?flags path f k
+  | Cwd | Fs -> statx ?flags path f k
 
 external eio_mkdirat : Unix.file_descr -> string -> Unix.file_perm -> unit = "caml_eio_mkdirat"
 
@@ -374,33 +398,6 @@ let mkdir_beneath ~perm dir path =
   with_parent_dir "mkdir" dir path @@ fun parent leaf ->
   try eio_mkdirat parent leaf perm
   with Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap_fs code name arg
-
-let float_of_time (s, ns) = Int64.to_float s +. (float ns /. 1e9)
-
-let statx ~mask fd path flags =
-  let x = Uring.Statx.create () in
-  let res = match fd with
-    | FD fd -> 
-      Fd.use_exn "statx" fd @@ fun fd ->
-      Sched.enter (enqueue_statx (Some fd, path, x, flags, mask))
-    | Cwd | Fs -> Sched.enter (enqueue_statx (None, path, x, flags, mask)) 
-  in
-  if res <> 0 then raise @@ Err.wrap_fs (Uring.error_of_errno res) "statx" "";
-  let module S = Uring.Statx in
-  { Eio.File.Stat.
-    dev = S.dev x;
-    ino = S.ino x;
-    kind = S.kind x;
-    perm = S.perm x;
-    nlink = S.nlink x;
-    uid = S.uid x;
-    gid = S.gid x;
-    rdev = S.rdev x;
-    size = Optint.Int63.of_int64 (S.size x);
-    atime = float_of_time (S.atime_sec x, S.atime_nsec x);
-    mtime = float_of_time (S.mtime_sec x, S.mtime_nsec x);
-    ctime = float_of_time (S.ctime_sec x, S.ctime_nsec x);
-  }
 
 let unlink ~rmdir dir path =
   (* [unlink] is really an operation on [path]'s parent. Get a reference to that first: *)

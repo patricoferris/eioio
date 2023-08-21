@@ -130,7 +130,7 @@ val read_dir : _ t -> string list
 
 (** {2 Metadata} *)
 
-val stat : follow:bool -> _ t -> File.Stat.t
+val stat : follow:bool -> _ t -> ('a, 'b) File.Stat.t -> 'a -> 'b
 (** [stat ~follow t] returns metadata about the file [t].
 
     If [t] is a symlink, the information returned is about the target if [follow = true],

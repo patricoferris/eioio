@@ -24,24 +24,36 @@ module Stat : sig
   val pp_kind : kind Fmt.t
   (** Pretty printer for {! kind}. *)
 
-  type t = {
-    dev : Int64.t;
-    ino : Int64.t;
-    kind : kind;
-    perm : Unix_perm.t;
-    nlink : Int64.t;
-    uid : Int64.t;
-    gid : Int64.t;
-    rdev : Int64.t;
-    size : Optint.Int63.t;
-    atime : float;
-    mtime : float;
-    ctime : float;
-  }
-  (** Like stat(2). *)
+  type 'a f =
+    | Dev : int64 f
+    | Ino : int64 f
+    | Kind : kind f
+    | Perm : int f
+    | Nlink : int64 f
+    | Uid : int64 f
+    | Gid : int64 f
+    | Rdev : int64 f
+    | Size : int64 f
+    | Atime : float f
+    | Ctime : float f
+    | Mtime : float f
 
-  val pp : t Fmt.t
-  (** Pretty printer for {! t}. *)
+  type ('a, 'ty) t =
+    | [] : ('ty, 'ty) t
+    | (::) : 'a f * ('b, 'ty) t -> ('a -> 'b, 'ty) t
+
+  val dev   : int64 f
+  val ino   : int64 f
+  val kind  : kind f
+  val perm  : int f
+  val nlink : int64 f
+  val uid   : int64 f
+  val gid   : int64 f
+  val rdev  : int64 f
+  val size  : int64 f
+  val atime : float f
+  val ctime : float f
+  val mtime : float f
 end
 
 type ro_ty = [`File | Flow.source_ty | Resource.close_ty]
@@ -59,7 +71,7 @@ module Pi : sig
     include Flow.Pi.SOURCE
 
     val pread : t -> file_offset:Optint.Int63.t -> Cstruct.t list -> int
-    val stat : t -> Stat.t
+    val stat : 'a 'b . t -> ('a, 'b) Stat.t -> 'a -> 'b
     val close : t -> unit
   end
 
@@ -79,11 +91,13 @@ module Pi : sig
   val rw : (module WRITE with type t = 't) -> ('t, rw_ty) Resource.handler
 end
 
-val stat : _ ro -> Stat.t
-(** [stat t] returns the {!Stat.t} record associated with [t]. *)
+val stat : _ ro -> ('a, 'b) Stat.t -> 'a -> 'b
+(** [stat t fields fn] will retrieve the file statistics for the specified
+    [fields] and apply them as arguments to [fn]. *)
 
 val size : _ ro -> Optint.Int63.t
-(** [size t] returns the size of [t]. *)
+(** [size t] returns the size of [t].
+    Equivalent to [stat t [File.size] Fun.id]. *)
 
 val pread : _ ro -> file_offset:Optint.Int63.t -> Cstruct.t list -> int
 (** [pread t ~file_offset bufs] performs a single read of [t] at [file_offset] into [bufs].

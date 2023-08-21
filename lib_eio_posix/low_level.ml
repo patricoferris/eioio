@@ -116,10 +116,6 @@ let getrandom { Cstruct.buffer; off; len } =
 let fstat fd =
   Fd.use_exn "fstat" fd Unix.LargeFile.fstat
 
-let lstat path =
-  in_worker_thread @@ fun () ->
-  Unix.LargeFile.lstat path
-
 let realpath path =
   in_worker_thread @@ fun () ->
   Unix.realpath path
@@ -241,7 +237,7 @@ module Stat = struct
   ]
 
   (* Has to match the C stubs. *)
-  type t = Eio.File.Stat.t = {
+  type t = {
     dev : Int64.t;
     ino : Int64.t;
     kind : kind;
@@ -250,7 +246,7 @@ module Stat = struct
     uid : Int64.t;
     gid : Int64.t;
     rdev : Int64.t;
-    size : Optint.Int63.t;
+    size : Optint.Int63.t; (* TODO int64 *)
     atime : float;
     mtime : float;
     ctime : float;

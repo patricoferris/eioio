@@ -145,9 +145,9 @@ module Flow = struct
 
   let close = Eio_unix.Fd.close
 
-  let is_tty t = Fd.use_exn "isatty" t Unix.isatty
+  let stat t f k = Low_level.statx ~fd:t ~flags:Uring.Statx.Flags.empty_path "" f k
 
-  let stat = Low_level.fstat
+  let is_tty t = Fd.use_exn "isatty" t Unix.isatty
 
   let single_read t buf =
     if is_tty t then (
@@ -496,25 +496,11 @@ end = struct
   let unlink t path = Low_level.unlink ~rmdir:false t.fd path
   let rmdir t path = Low_level.unlink ~rmdir:true t.fd path
 
-  let stat t ~follow path =
+  let stat t ~follow path f k =
     let flags = 
       if follow then Uring.Statx.Flags.empty else Uring.Statx.Flags.(empty + symlink_nofollow)
     in
-    let statx = Low_level.statx ~mask:Uring.Statx.Mask.basic_stats t.fd path flags in
-    Eio.File.Stat.{
-      dev = statx.dev;
-      rdev = statx.rdev;
-      ino = statx.ino;
-      kind = statx.kind;
-      perm = statx.perm;
-      nlink = statx.nlink;
-      uid = statx.uid;
-      gid = statx.gid;
-      size = statx.size;
-      atime = statx.atime;
-      mtime = statx.mtime;
-      ctime = statx.ctime;
-    }
+    Low_level.stat t.fd path ~flags f k
 
   let rename t old_path t2 new_path =
     match get_dir_fd_opt t2 with

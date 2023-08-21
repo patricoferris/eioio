@@ -35,9 +35,25 @@ val send_msg : fd -> ?fds:fd list -> ?dst:Unix.sockaddr -> Cstruct.t array -> in
 
 val getrandom : Cstruct.t -> unit
 
+module Stat : sig
+  type t = {
+    dev : Int64.t;
+    ino : Int64.t;
+    kind : Eio.File.Stat.kind;
+    perm : Eio.File.Unix_perm.t;
+    nlink : Int64.t;
+    uid : Int64.t;
+    gid : Int64.t;
+    rdev : Int64.t;
+    size : Optint.Int63.t;
+    atime : float;
+    mtime : float;
+    ctime : float;
+  }
+end
+
 val fstat : fd -> Unix.LargeFile.stats
-val lstat : string -> Unix.LargeFile.stats                      (* TODO: remove? *)
-val fstatat : ?dirfd:fd -> follow:bool -> string -> Eio.File.Stat.t
+val fstatat : ?dirfd:fd -> follow:bool -> string -> Stat.t
 
 val realpath : string -> string
 

@@ -153,8 +153,11 @@ module Low_level : sig
   val await_writable : fd -> unit
   (** [await_writable fd] blocks until [fd] is writable (or has an error). *)
 
-  val fstat : fd -> Eio.File.Stat.t
-  (** Like {!Unix.LargeFile.fstat}. *)
+  val statx : ?buf:Uring.Statx.t -> ?fd:fd -> ?flags:Uring.Statx.Flags.t -> string -> ('a, 'b) Eio.File.Stat.t -> 'a -> 'b
+  (** [statx ?buf ?fd ?flags path fields fn] runs {!Uring.statx} on the optional [fd]
+      with [flags] and [path]. The query mask is calculated from the [fields], and
+      the selected results are applied as arguments to [fn].  If [buf] is not passed
+      in then a fresh {!Uring.Statx.t} is allocated, otherwise [buf] will be used. *)
 
   val read_dir : fd -> string list
   (** [read_dir dir] reads all directory entries from [dir].

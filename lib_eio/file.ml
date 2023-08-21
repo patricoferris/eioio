@@ -26,36 +26,36 @@ module Stat = struct
     | `Symbolic_link -> Fmt.string ppf "symbolic link"
     | `Socket -> Fmt.string ppf "socket"
 
-  type t = {
-    dev : Int64.t;
-    ino : Int64.t;
-    kind : kind;
-    perm : Unix_perm.t;
-    nlink : Int64.t;
-    uid : Int64.t;
-    gid : Int64.t;
-    rdev : Int64.t;
-    size : Optint.Int63.t;
-    atime : float;
-    mtime : float;
-    ctime : float;
-  }
+  type 'a f =
+  | Dev : int64 f
+  | Ino : int64 f
+  | Kind : kind f
+  | Perm : int f
+  | Nlink : int64 f
+  | Uid : int64 f
+  | Gid : int64 f
+  | Rdev : int64 f
+  | Size : int64 f
+  | Atime : float f
+  | Ctime : float f
+  | Mtime : float f
 
-  let pp ppf t =
-    Fmt.record [
-      Fmt.field "dev" (fun t -> t.dev) Fmt.int64;
-      Fmt.field "ino" (fun t -> t.ino) Fmt.int64;
-      Fmt.field "kind" (fun t -> t.kind) pp_kind;
-      Fmt.field "perm" (fun t -> t.perm) (fun ppf i -> Fmt.pf ppf "0o%o" i);
-      Fmt.field "nlink" (fun t -> t.nlink) Fmt.int64;
-      Fmt.field "uid" (fun t -> t.uid) Fmt.int64;
-      Fmt.field "gid" (fun t -> t.gid) Fmt.int64;
-      Fmt.field "rdev" (fun t -> t.rdev) Fmt.int64;
-      Fmt.field "size" (fun t -> t.size) Optint.Int63.pp;
-      Fmt.field "atime" (fun t -> t.atime) Fmt.float;
-      Fmt.field "mtime" (fun t -> t.mtime) Fmt.float;
-      Fmt.field "ctime" (fun t -> t.ctime) Fmt.float;
-    ] ppf t 
+  type ('a, 'ty) t =
+    | [] : ('ty, 'ty) t
+    | (::) : 'a f * ('b, 'ty) t -> ('a -> 'b, 'ty) t
+
+  let dev = Dev
+  let ino = Ino
+  let kind = Kind
+  let perm = Perm
+  let nlink = Nlink
+  let uid = Uid
+  let gid = Gid
+  let rdev = Rdev
+  let size = Size
+  let atime = Atime
+  let ctime = Ctime
+  let mtime = Mtime
 end
 
 type ro_ty = [`File | Flow.source_ty | Resource.close_ty]
@@ -71,7 +71,7 @@ module Pi = struct
     include Flow.Pi.SOURCE
 
     val pread : t -> file_offset:Optint.Int63.t -> Cstruct.t list -> int
-    val stat : t -> Stat.t
+    val stat : 'a 'b . t -> ('a, 'b) Stat.t -> 'a -> 'b
     val close : t -> unit
   end
 
@@ -105,7 +105,8 @@ let stat (Resource.T (t, ops)) =
   let module X = (val (Resource.get ops Pi.Read)) in
   X.stat t
 
-let size t = (stat t).size
+let size t =
+  stat t [Stat.size] (fun s -> Optint.Int63.of_int64 s)
 
 let pread (Resource.T (t, ops)) ~file_offset bufs =
   let module X = (val (Resource.get ops Pi.Read)) in
