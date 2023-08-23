@@ -45,7 +45,7 @@ let run_cp block_size queue_depth infile outfile () =
       ~resolve:Uring.Resolve.empty
       ~perm:0o644
   in
-  let insize = U.statx ~fd:infd "" [Eio.File.Stat.Size] (fun size -> Int63.of_int64 size) in
+  let insize = U.statx ~fd:infd "" [Eio.File.Size] Int63.of_int64 in
   Logs.debug (fun l -> l "eurcp: %s -> %s size %a queue %d bs %d"
                  infile
                  outfile

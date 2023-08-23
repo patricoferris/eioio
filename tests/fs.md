@@ -543,7 +543,7 @@ Fstatat:
   try_mkdir (cwd / "stat_subdir2");
   Eio.Path.kind ~follow:true (cwd / "stat_subdir2")
 +mkdir <cwd:stat_subdir2> -> ok
-- : Eio.File.Stat.kind = `Directory
+- : Eio.File.kind = `Directory
 ```
 
 # pread/pwrite

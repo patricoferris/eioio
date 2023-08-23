@@ -39,7 +39,7 @@ module Stat : sig
   type t = {
     dev : Int64.t;
     ino : Int64.t;
-    kind : Eio.File.Stat.kind;
+    kind : Eio.File.kind;
     perm : Eio.File.Unix_perm.t;
     nlink : Int64.t;
     uid : Int64.t;

@@ -8,7 +8,7 @@ module Impl = struct
   type t = Eio_unix.Fd.t
 
   let stat t k =
-    let open Eio.File.Stat in
+    let open Eio.File in
     try
       let ust = Low_level.fstat t in
       let st_kind : kind =
@@ -21,7 +21,7 @@ module Impl = struct
         | Unix.S_FIFO -> `Fifo
         | Unix.S_SOCK -> `Socket
       in
-      let rec fn : type a b. (a, b) t -> a -> b = fun v acc ->
+      let rec fn : type a b. (a, b) stats -> a -> b = fun v acc ->
         match v with
         | Dev :: tl -> fn tl @@ acc (ust.st_dev |> Int64.of_int)
         | Ino :: tl -> fn tl @@ acc (ust.st_ino |> Int64.of_int)

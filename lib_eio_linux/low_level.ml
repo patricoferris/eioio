@@ -308,8 +308,8 @@ let float_of_time s ns = Int64.to_float s +. (float ns /. 1e9)
 let statx ?buf ?fd ?(flags=Uring.Statx.Flags.empty) path f k =
   let module X = Uring.Statx in
   let module M = Uring.Statx.Mask in
-  let module U = Eio.File.Stat in
-  let rec mask : type a b . (a,b) U.t -> M.t -> M.t = fun v acc ->
+  let module U = Eio.File in
+  let rec mask : type a b . (a,b) U.stats -> M.t -> M.t = fun v acc ->
     match v with
     | U.Dev :: tl -> mask tl acc
     | U.Ino :: tl -> mask tl M.(acc + M.ino)
@@ -334,7 +334,7 @@ let statx ?buf ?fd ?(flags=Uring.Statx.Flags.empty) path f k =
     | None-> Sched.enter (enqueue_statx (None, path, statx, flags, mask))
   in
   if res <> 0 then raise @@ Err.wrap_fs (Uring.error_of_errno res) "statx" "";
-  let rec fn : type a b. (a, b) U.t -> a -> b = fun v acc ->
+  let rec fn : type a b. (a, b) U.stats -> a -> b = fun v acc ->
     match v with
     | U.Dev :: tl -> fn tl @@ acc (X.dev statx)
     | U.Ino :: tl -> fn tl @@ acc (X.ino statx)

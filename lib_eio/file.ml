@@ -4,47 +4,44 @@ module Unix_perm = struct
   type t = int
 end
 
-module Stat = struct
-  type kind = [
-    | `Unknown
-    | `Fifo
-    | `Character_special
-    | `Directory
-    | `Block_device
-    | `Regular_file
-    | `Symbolic_link
-    | `Socket
-  ]
+type kind = [
+  | `Unknown
+  | `Fifo
+  | `Character_special
+  | `Directory
+  | `Block_device
+  | `Regular_file
+  | `Symbolic_link
+  | `Socket
+]
 
-  let pp_kind ppf = function
-    | `Unknown -> Fmt.string ppf "unknown"
-    | `Fifo -> Fmt.string ppf "fifo"
-    | `Character_special -> Fmt.string ppf "character special file"
-    | `Directory -> Fmt.string ppf "directory"
-    | `Block_device -> Fmt.string ppf "block device"
-    | `Regular_file -> Fmt.string ppf "regular file"
-    | `Symbolic_link -> Fmt.string ppf "symbolic link"
-    | `Socket -> Fmt.string ppf "socket"
+let pp_kind ppf = function
+  | `Unknown -> Fmt.string ppf "unknown"
+  | `Fifo -> Fmt.string ppf "fifo"
+  | `Character_special -> Fmt.string ppf "character special file"
+  | `Directory -> Fmt.string ppf "directory"
+  | `Block_device -> Fmt.string ppf "block device"
+  | `Regular_file -> Fmt.string ppf "regular file"
+  | `Symbolic_link -> Fmt.string ppf "symbolic link"
+  | `Socket -> Fmt.string ppf "socket"
 
-  type 'a f =
-    | Dev : int64 f
-    | Ino : int64 f
-    | Kind : kind f
-    | Perm : int f
-    | Nlink : int64 f
-    | Uid : int64 f
-    | Gid : int64 f
-    | Rdev : int64 f
-    | Size : int64 f
-    | Atime : float f
-    | Ctime : float f
-    | Mtime : float f
+type 'a stat =
+  | Dev : int64 stat
+  | Ino : int64 stat
+  | Kind : kind stat
+  | Perm : int stat
+  | Nlink : int64 stat
+  | Uid : int64 stat
+  | Gid : int64 stat
+  | Rdev : int64 stat
+  | Size : int64 stat
+  | Atime : float stat
+  | Ctime : float stat
+  | Mtime : float stat
 
-  type ('a, 'ty) t =
-    | [] : ('ty, 'ty) t
-    | (::) : 'a f * ('b, 'ty) t -> ('a -> 'b, 'ty) t
-
-end
+type ('a, 'ty) stats =
+  | [] : ('ty, 'ty) stats
+  | (::) : 'a stat * ('b, 'ty) stats -> ('a -> 'b, 'ty) stats
 
 type ro_ty = [`File | Flow.source_ty | Resource.close_ty]
 
@@ -59,7 +56,7 @@ module Pi = struct
     include Flow.Pi.SOURCE
 
     val pread : t -> file_offset:Optint.Int63.t -> Cstruct.t list -> int
-    val stat : 'a 'b . t -> ('a, 'b) Stat.t -> 'a -> 'b
+    val stat : 'a 'b . t -> ('a, 'b) stats -> 'a -> 'b
     val close : t -> unit
   end
 
@@ -93,14 +90,14 @@ let stat (Resource.T (t, ops)) =
   let module X = (val (Resource.get ops Pi.Read)) in
   X.stat t
 
-let kind t  = stat t [Stat.Kind] Fun.id
-let perm t  = stat t [Stat.Perm] Fun.id
-let uid t   = stat t [Stat.Uid] Fun.id
-let gid t   = stat t [Stat.Gid] Fun.id
-let size t  = stat t [Stat.Size] (fun s -> Optint.Int63.of_int64 s)
-let atime t = stat t [Stat.Atime] Fun.id
-let ctime t = stat t [Stat.Ctime] Fun.id
-let mtime t = stat t [Stat.Mtime] Fun.id
+let kind t  = stat t [Kind] Fun.id
+let perm t  = stat t [Perm] Fun.id
+let uid t   = stat t [Uid] Fun.id
+let gid t   = stat t [Gid] Fun.id
+let size t  = stat t [Size] (fun s -> Optint.Int63.of_int64 s)
+let atime t = stat t [Atime] Fun.id
+let ctime t = stat t [Ctime] Fun.id
+let mtime t = stat t [Mtime] Fun.id
 
 let pread (Resource.T (t, ops)) ~file_offset bufs =
   let module X = (val (Resource.get ops Pi.Read)) in

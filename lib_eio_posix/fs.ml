@@ -139,10 +139,10 @@ end = struct
 
   let stat t ~follow path k =
     with_parent_dir t path @@ fun dirfd path ->
-    let open Eio.File.Stat in
+    let open Eio.File in
     try
       let r = Low_level.fstatat ?dirfd ~follow path in
-      let rec fn : type a b. (a, b) t -> a -> b = fun v acc ->
+      let rec fn : type a b. (a, b) stats -> a -> b = fun v acc ->
         match v with
         | Dev :: tl -> fn tl @@ acc r.dev
         | Ino :: tl -> fn tl @@ acc r.ino
