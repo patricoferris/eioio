@@ -267,22 +267,28 @@ STAT_GETTER(size, int64_t, caml_copy_int64);
 STAT_GETTER(blocks, int64_t, caml_copy_int64);
 STAT_GETTER(mode, intnat, Val_int);
 
-#define STAT_TIME_GETTER(field) \
-int64_t ocaml_eio_posix_stat_##field##_sec_native(value v_stat) { \
+#define STAT_TIME_GETTER(name,field) \
+int64_t ocaml_eio_posix_stat_##name##_sec_native(value v_stat) { \
   struct stat *s = Stat_val(v_stat); \
   return s->st_##field.tv_sec; \
 } \
-value ocaml_eio_posix_stat_##field##_sec_bytes(value v_stat) { \
-  return caml_copy_int64(ocaml_eio_posix_stat_##field##_sec_native(v_stat)); \
+value ocaml_eio_posix_stat_##name##_sec_bytes(value v_stat) { \
+  return caml_copy_int64(ocaml_eio_posix_stat_##name##_sec_native(v_stat)); \
 } \
-value ocaml_eio_posix_stat_##field##_nsec(value v_stat) { \
+value ocaml_eio_posix_stat_##name##_nsec(value v_stat) { \
   struct stat *s = Stat_val(v_stat); \
   return Val_int(s->st_##field.tv_nsec); \
 }
 
-STAT_TIME_GETTER(atim);
-STAT_TIME_GETTER(ctim);
-STAT_TIME_GETTER(mtim);
+#ifdef __APPLE__
+STAT_TIME_GETTER(atime,atimespec);
+STAT_TIME_GETTER(ctime,ctimespec);
+STAT_TIME_GETTER(mtime,mtimespec);
+#else
+STAT_TIME_GETTER(atime,atim);
+STAT_TIME_GETTER(ctime,ctim);
+STAT_TIME_GETTER(mtime,mtim);
+#endif
 
 intnat
 ocaml_eio_posix_stat_perm_native(value v_stat) {

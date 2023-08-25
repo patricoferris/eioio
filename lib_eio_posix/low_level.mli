@@ -51,13 +51,13 @@ external perm    : stat -> (int [@untagged]) = "ocaml_eio_posix_stat_perm_bytes"
 external mode    : stat -> (int [@untagged]) = "ocaml_eio_posix_stat_mode_bytes" "ocaml_eio_posix_stat_mode_native" [@@noalloc]
 external kind    : stat -> Eio.File.kind = "ocaml_eio_posix_stat_kind"
 
-external atime_sec : stat -> (int64 [@unboxed]) = "ocaml_eio_posix_stat_atim_sec_bytes" "ocaml_eio_posix_stat_atim_sec_native" [@@noalloc]
-external ctime_sec : stat -> (int64 [@unboxed]) = "ocaml_eio_posix_stat_ctim_sec_bytes" "ocaml_eio_posix_stat_ctim_sec_native" [@@noalloc]
-external mtime_sec : stat -> (int64 [@unboxed]) = "ocaml_eio_posix_stat_mtim_sec_bytes" "ocaml_eio_posix_stat_mtim_sec_native" [@@noalloc]
+external atime_sec : stat -> (int64 [@unboxed]) = "ocaml_eio_posix_stat_atime_sec_bytes" "ocaml_eio_posix_stat_atime_sec_native" [@@noalloc]
+external ctime_sec : stat -> (int64 [@unboxed]) = "ocaml_eio_posix_stat_ctime_sec_bytes" "ocaml_eio_posix_stat_ctime_sec_native" [@@noalloc]
+external mtime_sec : stat -> (int64 [@unboxed]) = "ocaml_eio_posix_stat_mtime_sec_bytes" "ocaml_eio_posix_stat_mtime_sec_native" [@@noalloc]
 
-external atime_nsec : stat -> int = "ocaml_eio_posix_stat_atim_nsec" [@@noalloc]
-external ctime_nsec : stat -> int = "ocaml_eio_posix_stat_ctim_nsec" [@@noalloc]
-external mtime_nsec : stat -> int = "ocaml_eio_posix_stat_mtim_nsec" [@@noalloc]
+external atime_nsec : stat -> int = "ocaml_eio_posix_stat_atime_nsec" [@@noalloc]
+external ctime_nsec : stat -> int = "ocaml_eio_posix_stat_ctime_nsec" [@@noalloc]
+external mtime_nsec : stat -> int = "ocaml_eio_posix_stat_mtime_nsec" [@@noalloc]
 
 val realpath : string -> string
 
