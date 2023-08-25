@@ -22,6 +22,7 @@
 #include <caml/unixsupport.h>
 #include <caml/bigarray.h>
 #include <caml/socketaddr.h>
+#include <caml/custom.h>
 
 #include "fork_action.h"
 
@@ -167,62 +168,159 @@ static double double_of_timespec(struct timespec *t) {
   return ((double) t->tv_sec) + (((double ) t->tv_nsec) / 1e9);
 }
 
-static value get_file_type_variant(struct stat sb) {
-  int filetype = sb.st_mode & S_IFMT;
-  if (filetype == S_IFREG) {
-    return caml_hash_variant("Regular_file");
-  } else if (filetype == S_IFSOCK) {
-    return caml_hash_variant("Socket");
-  } else if (filetype == S_IFLNK) {
-    return caml_hash_variant("Symbolic_link");
-  } else if (filetype == S_IFBLK) {
-    return caml_hash_variant("Block_device");
-  } else if (filetype == S_IFDIR) {
-    return caml_hash_variant("Directory");
-  } else if (filetype == S_IFCHR) {
-    return caml_hash_variant("Character_special");
-  } else if (filetype == S_IFIFO) {
-    return caml_hash_variant("Fifo");
-  } else {
-    return caml_hash_variant("Unknown");
+#define Stat_val(v) (*((struct stat **) Data_custom_val(v)))
+
+static void finalize_stat(value v) {
+  caml_stat_free(Stat_val(v));
+  Stat_val(v) = NULL;
+}
+
+static struct custom_operations stat_ops = {
+  "eio_posix.stat",
+  finalize_stat,
+  custom_compare_default,
+  custom_hash_default,
+  custom_serialize_default,
+  custom_deserialize_default,
+  custom_compare_ext_default,
+  custom_fixed_length_default
+};
+
+value
+caml_eio_posix_make_stat(value v_unit) {
+  CAMLparam0();
+  CAMLlocal1(v);
+  struct stat *data;
+  v = caml_alloc_custom_mem(&stat_ops, sizeof(struct stat *), sizeof(struct stat));
+  Stat_val(v) = NULL;
+  data = (struct stat *) caml_stat_alloc(sizeof(struct stat));
+  Stat_val(v) = data;
+  CAMLreturn(v);
+}
+
+static value get_file_type_variant(struct stat *sb) {
+  int filetype = sb->st_mode & S_IFMT;
+  switch (filetype) {
+    case S_IFREG:
+      return caml_hash_variant("Regular_file");
+    case S_IFSOCK:
+      return caml_hash_variant("Socket");
+    case S_IFLNK:
+      return caml_hash_variant("Symbolic_link");
+    case S_IFBLK:
+      return caml_hash_variant("Block_device");
+    case S_IFDIR:
+      return caml_hash_variant("Directory");
+    case S_IFCHR:
+      return caml_hash_variant("Character_special");
+    case S_IFIFO:
+      return caml_hash_variant("Fifo");
+    default:
+      return caml_hash_variant("Unknown");
   }
 }
 
-CAMLprim value caml_eio_posix_fstatat(value v_fd, value v_path, value v_flags) {
-  CAMLparam1(v_path);
-  CAMLlocal1(v_ret);
+CAMLprim value caml_eio_posix_fstatat(value v_stat, value v_fd, value v_path, value v_flags) {
+  CAMLparam2(v_stat, v_path);
   char *path;
   int ret;
-  struct stat statbuf;
-
+  struct stat *statbuf = Stat_val(v_stat);
+  bzero(statbuf, sizeof(struct stat));
   caml_unix_check_path(v_path, "fstatat");
   path = caml_stat_strdup(String_val(v_path));
   caml_enter_blocking_section();
-  ret = fstatat(Int_val(v_fd), path, &statbuf, Int_val(v_flags));
+  ret = fstatat(Int_val(v_fd), path, statbuf, Int_val(v_flags));
   caml_leave_blocking_section();
   caml_stat_free_preserving_errno(path);
   if (ret == -1) uerror("fstatat", v_path);
+  CAMLreturn(Val_unit);
+}
 
-  v_ret = caml_alloc(12, 0);
-  Store_field(v_ret, 0, caml_copy_int64(statbuf.st_dev));
-  Store_field(v_ret, 1, caml_copy_int64(statbuf.st_ino));
-  Store_field(v_ret, 2, get_file_type_variant(statbuf));
-  Store_field(v_ret, 3, Val_int(statbuf.st_mode & ~S_IFMT));
-  Store_field(v_ret, 4, caml_copy_int64(statbuf.st_nlink));
-  Store_field(v_ret, 5, caml_copy_int64(statbuf.st_uid));
-  Store_field(v_ret, 6, caml_copy_int64(statbuf.st_gid));
-  Store_field(v_ret, 7, caml_copy_int64(statbuf.st_rdev));
-  Store_field(v_ret, 8, caml_copy_int63(statbuf.st_size));
-  #ifdef __APPLE__
-  Store_field(v_ret, 9, caml_copy_double(double_of_timespec(&statbuf.st_atimespec)));
-  Store_field(v_ret, 10, caml_copy_double(double_of_timespec(&statbuf.st_mtimespec)));
-  Store_field(v_ret, 11, caml_copy_double(double_of_timespec(&statbuf.st_ctimespec)));
-  #else
-  Store_field(v_ret, 9, caml_copy_double(double_of_timespec(&statbuf.st_atim)));
-  Store_field(v_ret, 10, caml_copy_double(double_of_timespec(&statbuf.st_mtim)));
-  Store_field(v_ret, 11, caml_copy_double(double_of_timespec(&statbuf.st_ctim)));
-  #endif
-  CAMLreturn(v_ret);
+CAMLprim value caml_eio_posix_fstat(value v_stat, value v_fd) {
+  CAMLparam1(v_stat);
+  int ret;
+  struct stat *statbuf = Stat_val(v_stat);
+  bzero(statbuf, sizeof(struct stat));
+  caml_enter_blocking_section();
+  ret = fstat(Int_val(v_fd), statbuf);
+  caml_leave_blocking_section();
+  if (ret == -1) uerror("fstat", Nothing);
+  CAMLreturn(Val_unit);
+}
+
+// Non-allocating (for native mode) accessors for struct stat
+#define STAT_GETTER(field, return_type, ocaml_value_maker) \
+return_type ocaml_eio_posix_stat_##field##_native(value v_stat) { \
+  struct stat *s = Stat_val(v_stat); \
+  return s->st_##field; \
+} \
+value ocaml_eio_posix_stat_ ## field ## _bytes(value v_stat) { \
+  return ocaml_value_maker(ocaml_eio_posix_stat_##field##_native(v_stat)); \
+}
+
+STAT_GETTER(blksize, int64_t, caml_copy_int64);
+STAT_GETTER(nlink, int64_t, caml_copy_int64);
+STAT_GETTER(uid, int64_t, caml_copy_int64);
+STAT_GETTER(gid, int64_t, caml_copy_int64);
+STAT_GETTER(ino, int64_t, caml_copy_int64);
+STAT_GETTER(size, int64_t, caml_copy_int64);
+STAT_GETTER(blocks, int64_t, caml_copy_int64);
+STAT_GETTER(mode, intnat, Val_int);
+
+#define STAT_TIME_GETTER(field) \
+int64_t ocaml_eio_posix_stat_##field##_sec_native(value v_stat) { \
+  struct stat *s = Stat_val(v_stat); \
+  return s->st_##field.tv_sec; \
+} \
+value ocaml_eio_posix_stat_##field##_sec_bytes(value v_stat) { \
+  return caml_copy_int64(ocaml_eio_posix_stat_##field##_sec_native(v_stat)); \
+} \
+value ocaml_eio_posix_stat_##field##_nsec(value v_stat) { \
+  struct stat *s = Stat_val(v_stat); \
+  return Val_int(s->st_##field.tv_nsec); \
+}
+
+STAT_TIME_GETTER(atim);
+STAT_TIME_GETTER(ctim);
+STAT_TIME_GETTER(mtim);
+
+intnat
+ocaml_eio_posix_stat_perm_native(value v_stat) {
+  struct stat *s = Stat_val(v_stat);
+  return (s->st_mode & ~S_IFMT);
+}
+
+value
+ocaml_eio_posix_stat_perm_bytes(value v_stat) {
+  return Val_int(ocaml_eio_posix_stat_perm_native(v_stat));
+}
+
+value
+ocaml_eio_posix_stat_kind(value v_stat) {
+  struct stat *s = Stat_val(v_stat);
+  return get_file_type_variant(s);
+}
+
+int64_t
+ocaml_eio_posix_stat_rdev_native(value v_stat) {
+  struct stat *s = Stat_val(v_stat);
+  return s->st_rdev;
+}
+
+value
+ocaml_eio_posix_stat_rdev_bytes(value v_stat) {
+  return caml_copy_int64(ocaml_eio_posix_stat_rdev_native(v_stat));
+}
+
+int64_t
+ocaml_eio_posix_stat_dev_native(value v_stat) {
+  struct stat *s = Stat_val(v_stat);
+  return s->st_dev;
+}
+
+value
+ocaml_eio_posix_stat_dev_bytes(value v_stat) {
+  return caml_copy_int64(ocaml_eio_posix_stat_dev_native(v_stat));
 }
 
 CAMLprim value caml_eio_posix_unlinkat(value v_fd, value v_path, value v_dir) {

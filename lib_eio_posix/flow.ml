@@ -7,34 +7,28 @@ module Impl = struct
 
   type t = Eio_unix.Fd.t
 
+  (* TODO fix rounding *)
+  let float_of_time s ns = Int64.to_float s +. (float ns /. 1e9)
+
   let stat t k =
     let open Eio.File in
+    (* TODO pool the buf *)
+    let t = Low_level.fstat t in
     try
-      let ust = Low_level.fstat t in
-      let st_kind : kind =
-        match ust.st_kind with
-        | Unix.S_REG  -> `Regular_file
-        | Unix.S_DIR  -> `Directory
-        | Unix.S_CHR  -> `Character_special
-        | Unix.S_BLK  -> `Block_device
-        | Unix.S_LNK  -> `Symbolic_link
-        | Unix.S_FIFO -> `Fifo
-        | Unix.S_SOCK -> `Socket
-      in
       let rec fn : type a b. (a, b) stats -> a -> b = fun v acc ->
         match v with
-        | Dev :: tl -> fn tl @@ acc (ust.st_dev |> Int64.of_int)
-        | Ino :: tl -> fn tl @@ acc (ust.st_ino |> Int64.of_int)
-        | Kind :: tl -> fn tl @@ acc st_kind
-        | Perm :: tl -> fn tl @@ acc ust.st_perm
-        | Nlink :: tl -> fn tl @@ acc (ust.st_nlink |> Int64.of_int)
-        | Uid :: tl -> fn tl @@ acc (ust.st_uid |> Int64.of_int)
-        | Gid :: tl -> fn tl @@ acc (ust.st_gid |> Int64.of_int)
-        | Rdev :: tl -> fn tl @@ acc (ust.st_rdev |> Int64.of_int)
-        | Size :: tl -> fn tl @@ acc ust.st_size
-        | Atime :: tl -> fn tl @@ acc ust.st_atime
-        | Mtime :: tl -> fn tl @@ acc ust.st_mtime
-        | Ctime :: tl -> fn tl @@ acc ust.st_ctime
+        | Dev :: tl -> fn tl @@ acc (Low_level.dev t)
+        | Ino :: tl -> fn tl @@ acc (Low_level.ino t)
+        | Kind :: tl -> fn tl @@ acc (Low_level.kind t)
+        | Perm :: tl -> fn tl @@ acc (Low_level.perm t)
+        | Nlink :: tl -> fn tl @@ acc (Low_level.nlink t)
+        | Uid :: tl -> fn tl @@ acc (Low_level.uid t)
+        | Gid :: tl -> fn tl @@ acc (Low_level.gid t)
+        | Rdev :: tl -> fn tl @@ acc (Low_level.rdev t)
+        | Size :: tl -> fn tl @@ acc (Low_level.size t)
+        | Atime :: tl -> fn tl @@ acc (float_of_time (Low_level.atime_sec t) (Low_level.atime_nsec t))
+        | Mtime :: tl -> fn tl @@ acc (float_of_time (Low_level.mtime_sec t) (Low_level.mtime_nsec t))
+        | Ctime :: tl -> fn tl @@ acc (float_of_time (Low_level.ctime_sec t) (Low_level.ctime_nsec t))
         | [] -> acc
       in
       fn k

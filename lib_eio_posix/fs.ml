@@ -137,6 +137,9 @@ end = struct
     with_parent_dir t path @@ fun dirfd path ->
     Err.run (Low_level.unlink ?dirfd ~dir:true) path
 
+  (* TODO fix rounding *)
+  let float_of_time s ns = Int64.to_float s +. (float ns /. 1e9)
+
   let stat t ~follow path k =
     with_parent_dir t path @@ fun dirfd path ->
     let open Eio.File in
@@ -144,18 +147,18 @@ end = struct
       let r = Low_level.fstatat ?dirfd ~follow path in
       let rec fn : type a b. (a, b) stats -> a -> b = fun v acc ->
         match v with
-        | Dev :: tl -> fn tl @@ acc r.dev
-        | Ino :: tl -> fn tl @@ acc r.ino
-        | Kind :: tl -> fn tl @@ acc r.kind
-        | Perm :: tl -> fn tl @@ acc r.perm
-        | Nlink :: tl -> fn tl @@ acc r.nlink
-        | Uid :: tl -> fn tl @@ acc r.uid
-        | Gid :: tl -> fn tl @@ acc r.gid
-        | Rdev :: tl -> fn tl @@ acc r.rdev
-        | Size :: tl -> fn tl @@ acc (Optint.Int63.to_int64 r.size)
-        | Atime :: tl -> fn tl @@ acc r.atime
-        | Mtime :: tl -> fn tl @@ acc r.mtime
-        | Ctime :: tl -> fn tl @@ acc r.ctime
+        | Dev :: tl -> fn tl @@ acc (Low_level.dev r)
+        | Ino :: tl -> fn tl @@ acc (Low_level.ino r)
+        | Kind :: tl -> fn tl @@ acc (Low_level.kind r)
+        | Perm :: tl -> fn tl @@ acc (Low_level.perm r)
+        | Nlink :: tl -> fn tl @@ acc (Low_level.nlink r)
+        | Uid :: tl -> fn tl @@ acc (Low_level.uid r)
+        | Gid :: tl -> fn tl @@ acc (Low_level.gid r)
+        | Rdev :: tl -> fn tl @@ acc (Low_level.rdev r)
+        | Size :: tl -> fn tl @@ acc (Low_level.size r)
+        | Atime :: tl -> fn tl @@ acc (float_of_time (Low_level.atime_sec r) (Low_level.atime_nsec r))
+        | Mtime :: tl -> fn tl @@ acc (float_of_time (Low_level.mtime_sec r) (Low_level.mtime_nsec r))
+        | Ctime :: tl -> fn tl @@ acc (float_of_time (Low_level.ctime_sec r) (Low_level.ctime_nsec r))
         | [] -> acc
       in fn k
     with Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap code name arg

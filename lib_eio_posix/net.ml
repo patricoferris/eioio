@@ -105,7 +105,7 @@ let listen ~reuse_addr ~reuse_port ~backlog ~sw (listen_addr : Eio.Net.Sockaddr.
     | `Unix path         ->
       if reuse_addr then (
         match Low_level.fstatat ~follow:false path with
-        | Low_level.Stat.{ kind = `Socket; _ } -> Unix.unlink path
+        | buf when Low_level.kind buf = `Socket -> Unix.unlink path
         | _ -> ()
         | exception Unix.Unix_error (Unix.ENOENT, _, _) -> ()
         | exception Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap code name arg
