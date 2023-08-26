@@ -9,6 +9,7 @@ let benchmarks = [
   "Stream", Bench_stream.run;
   "HTTP", Bench_http.run;
   "Eio_unix.Fd", Bench_fd.run;
+  "Stat", Bench_stat.run
 ]
 
 let usage_error () =
