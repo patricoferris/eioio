@@ -1,5 +1,5 @@
 include Tracing_common
-module RE = Eio_runtime_events
+module RE = Meio_runtime_events
 
 let re_hiatus_of_eio_hiatus Wait_for_work = RE.Wait_for_work
 
