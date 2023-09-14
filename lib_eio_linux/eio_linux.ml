@@ -388,7 +388,7 @@ let unwrap_backtrace = function
 
 module Domain_mgr = struct
   type t = {
-    run_event_loop : (unit -> unit) -> unit -> unit;
+    run_event_loop : loc:string -> (unit -> unit) -> unit -> unit;
   }
 
   let make ~run_event_loop = { run_event_loop }
