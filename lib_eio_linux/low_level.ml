@@ -233,6 +233,35 @@ let connect fd addr =
     raise ex
   )
 
+let listen ~reuse_addr ~reuse_port ~backlog ~sw listen_addr =
+  if reuse_addr then (
+    match listen_addr with
+    | `Tcp _ -> ()
+    | `Unix path ->
+      match Unix.lstat path with
+      | Unix.{ st_kind = S_SOCK; _ } -> Unix.unlink path
+      | _ -> ()
+      | exception Unix.Unix_error (Unix.ENOENT, _, _) -> ()
+      | exception Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap code name arg
+  );
+  let addr = Eio_unix.Net.sockaddr_to_unix listen_addr in
+  let sock_unix = Unix.socket ~cloexec:true (Eio_unix.Net.socket_domain_of listen_addr) Unix.SOCK_STREAM 0 in
+  let sock = Fd.of_unix ~sw ~seekable:false ~close_unix:true sock_unix in
+  (* For Unix domain sockets, remove the path when done (except for abstract sockets). *)
+  begin match listen_addr with
+    | `Unix path ->
+      if String.length path > 0 && path.[0] <> Char.chr 0 then
+        Switch.on_release sw (fun () -> Unix.unlink path)
+    | `Tcp _ -> ()
+  end;
+  if reuse_addr then
+    Unix.setsockopt sock_unix Unix.SO_REUSEADDR true;
+  if reuse_port then
+    Unix.setsockopt sock_unix Unix.SO_REUSEPORT true;
+  Unix.bind sock_unix addr;
+  Unix.listen sock_unix backlog;
+  sock
+
 let send_msg fd ?(fds=[]) ?dst buf =
   Fd.use_exn "send_msg" fd @@ fun fd ->
   Fd.use_exn_list "send_msg" fds @@ fun fds ->

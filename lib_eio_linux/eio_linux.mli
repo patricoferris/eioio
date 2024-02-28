@@ -147,6 +147,14 @@ module Low_level : sig
   val connect : fd -> Unix.sockaddr -> unit
   (** [connect fd addr] attempts to connect socket [fd] to [addr]. *)
 
+  val listen : 
+    reuse_addr:bool ->
+    reuse_port:bool ->
+    backlog:int ->
+    sw:Switch.t ->
+    Eio.Net.Sockaddr.stream ->
+    fd
+
   val await_readable : fd -> unit
   (** [await_readable fd] blocks until [fd] is readable (or has an error). *)
 
@@ -251,3 +259,17 @@ module Low_level : sig
   end
 
 end
+
+val flow : 
+    fd ->
+    [< `Close
+    | `File
+    | `Flow
+    | `Platform of [ `Generic | `Unix ]
+    | `R
+    | `Shutdown
+    | `Socket
+    | `Stream
+    | `Unix_fd
+    | `W ]
+    r

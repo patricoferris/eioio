@@ -262,7 +262,6 @@ let connect ~sw connect_addr =
   let sock = Fd.of_unix ~sw ~seekable:false ~close_unix:true sock_unix in
   Low_level.connect sock addr;
   (flow sock :> _ Eio_unix.Net.stream_socket)
-
 module Impl = struct
   type t = unit
   type tag = [`Unix | `Generic]
