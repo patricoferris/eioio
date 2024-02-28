@@ -30,6 +30,16 @@ let sockaddr_of_unix_datagram = function
     let host = Ipaddr.of_unix host in
     `Udp (host, port)
 
+let socket_domain_of = function
+  | `Unix _ -> Unix.PF_UNIX
+  | `UdpV4 -> Unix.PF_INET
+  | `UdpV6 -> Unix.PF_INET6
+  | `Udp (host, _)
+  | `Tcp (host, _) ->
+    Eio.Net.Ipaddr.fold host
+      ~v4:(fun _ -> Unix.PF_INET)
+      ~v6:(fun _ -> Unix.PF_INET6)
+
 let send_msg (Eio.Resource.T (t, ops)) ?(fds=[]) bufs =
   let module X = (val (Eio.Resource.get ops Pi.Stream_socket)) in
   let rec aux ~fds bufs =

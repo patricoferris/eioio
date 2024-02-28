@@ -40,3 +40,7 @@ let run main =
     method secure_random = Flow.secure_random
     method backend_id = "posix"
   end
+
+
+let flow_of_fd = Flow.of_fd
+

@@ -10,3 +10,17 @@ val run : (stdenv -> 'a) -> 'a
 
 module Low_level = Low_level
 (** Low-level API for making POSIX calls directly. *)
+
+val flow_of_fd :
+  Eio_unix.Fd.t ->
+  [< `Close
+  | `File
+  | `Flow
+  | `Platform of [ `Generic | `Unix ]
+  | `R
+  | `Shutdown
+  | `Socket
+  | `Stream
+  | `Unix_fd
+  | `W ]
+  Eio.Std.r

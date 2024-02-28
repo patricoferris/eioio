@@ -465,6 +465,41 @@ let fstatat ~buf ~follow dirfd path =
     Fd.use_exn "fstat" dirfd @@ fun dirfd ->
     fstatat_confined ~buf ~follow (Some dirfd) path
 
+let listen ~reuse_addr ~reuse_port ~backlog ~sw listen_addr =
+  let socket_type, addr =
+    match listen_addr with
+    | `Unix path         ->
+      if reuse_addr then (
+        let buf = create_stat () in
+        match fstatat ~buf ~follow:false Fs path with
+        | () -> if kind buf = `Socket then Unix.unlink path
+        | exception Unix.Unix_error (Unix.ENOENT, _, _) -> ()
+        | exception Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap code name arg
+      );
+      Unix.SOCK_STREAM, Unix.ADDR_UNIX path
+    | `Tcp (host, port)  ->
+      let host = Eio_unix.Net.Ipaddr.to_unix host in
+      Unix.SOCK_STREAM, Unix.ADDR_INET (host, port)
+  in
+  let sock = socket ~sw (Eio_unix.Net.socket_domain_of listen_addr) socket_type 0 in
+  (* For Unix domain sockets, remove the path when done (except for abstract sockets). *)
+  let hook =
+    match listen_addr with
+    | `Unix path when String.length path > 0 && path.[0] <> Char.chr 0 ->
+      Switch.on_release_cancellable sw (fun () -> Unix.unlink path)
+    | `Unix _ | `Tcp _ ->
+      Switch.null_hook
+  in
+  Fd.use_exn "listen" sock (fun fd ->
+      if reuse_addr then
+        Unix.setsockopt fd Unix.SO_REUSEADDR true;
+      if reuse_port then
+        Unix.setsockopt fd Unix.SO_REUSEPORT true;
+      Unix.bind fd addr;
+      Unix.listen fd backlog;
+    );
+  sock
+
 let lseek fd off cmd =
   Fd.use_exn "lseek" fd @@ fun fd ->
   let cmd =

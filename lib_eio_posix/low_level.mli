@@ -30,6 +30,13 @@ val write : fd -> bytes -> int -> int -> int
 val socket : sw:Switch.t -> Unix.socket_domain -> Unix.socket_type -> int -> fd
 val connect : fd -> Unix.sockaddr -> unit
 val accept : sw:Switch.t -> fd -> fd * Unix.sockaddr
+val listen :
+  reuse_addr:bool ->
+  reuse_port:bool ->
+  backlog:int ->
+  sw:Switch.t ->
+  Eio.Net.Sockaddr.stream ->
+  fd
 
 val shutdown : fd -> Unix.shutdown_command -> unit
 

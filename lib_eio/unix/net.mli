@@ -44,6 +44,7 @@ val fd : [> `Platform of [> `Unix] | `Socket] r -> Fd.t
 val sockaddr_to_unix : [< Eio.Net.Sockaddr.stream | Eio.Net.Sockaddr.datagram] -> Unix.sockaddr
 val sockaddr_of_unix_stream : Unix.sockaddr -> Eio.Net.Sockaddr.stream
 val sockaddr_of_unix_datagram : Unix.sockaddr -> Eio.Net.Sockaddr.datagram
+val socket_domain_of : [< Eio.Net.Sockaddr.stream | Eio.Net.Sockaddr.datagram] -> Unix.socket_domain
 
 (** Convert between Eio.Net.Ipaddr and Unix.inet_addr. *)
 module Ipaddr : sig
