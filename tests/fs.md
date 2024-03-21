@@ -89,6 +89,11 @@ let try_stat path =
     traceln "%a -> %s" Eio.Path.pp path a
   else
     traceln "%a -> %s / %s" Eio.Path.pp path a b
+
+let try_symlink ?exists_ok ~target name =
+  match Path.symlink ?exists_ok ~target name with
+  | s -> traceln "symlink %a -> %S" Path.pp target name
+  | exception ex -> traceln "@[<h>%a@]" Eio.Exn.pp ex
 ```
 
 # Basic test cases
@@ -648,6 +653,27 @@ Can use `fs` to access absolute paths:
 +Trying with cwd instead fails:
 Exception: Eio.Io Fs Permission_denied _,
   opening <cwd:/dev/null>
+```
+
+Symlinking and sandboxing:
+
+```ocaml
+# run ~clear:["hello.txt"; "world.txt"] @@ fun env ->
+  let cwd = Eio.Stdenv.cwd env in
+  Path.save ~create:(`Exclusive 0o600) (cwd / "hello.txt") "Hello World!";
+  try_symlink ~target:(cwd / "hello.txt") "../world.txt";
+  try_symlink ~target:(cwd / "hello.txt") "/world.txt";
+  try_symlink ~target:(cwd / "hello.txt") "world.txt";
+  traceln "world.txt -> hello.txt: %s" (Path.load (cwd / "world.txt"));
+  try_symlink ~target:(cwd / "hello.txt") "world.txt";
+  try_symlink ~exists_ok:true ~target:(cwd / "hello.txt") "world.txt";
++Eio.Io Fs Permission_denied _, symlink to <cwd:hello.txt> called ../world.txt
++Eio.Io Fs Permission_denied _, symlink to <cwd:hello.txt> called /world.txt
++symlink <cwd:hello.txt> -> "world.txt"
++world.txt -> hello.txt: Hello World!
++Eio.Io Fs Already_exists _, symlink to <cwd:hello.txt> called world.txt
++symlink <cwd:hello.txt> -> "world.txt"
+- : unit = ()
 ```
 
 ## Streamling lines
