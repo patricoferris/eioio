@@ -97,6 +97,26 @@ CAMLprim value caml_eio_renameat(value v_old_fd, value v_old_path, value v_new_f
   CAMLreturn(Val_unit);
 }
 
+CAMLprim value caml_eio_symlinkat(value v_old_path, value v_new_fd, value v_new_path) {
+  CAMLparam2(v_old_path, v_new_path);
+  size_t old_path_len = caml_string_length(v_old_path);
+  size_t new_path_len = caml_string_length(v_new_path);
+  char *old_path;
+  char *new_path;
+  int ret;
+  caml_unix_check_path(v_old_path, "symlinkat-old");
+  caml_unix_check_path(v_new_path, "symlinkat-new");
+  old_path = caml_stat_alloc(old_path_len + new_path_len + 2);
+  new_path = old_path + old_path_len + 1;
+  memcpy(old_path, String_val(v_old_path), old_path_len + 1);
+  memcpy(new_path, String_val(v_new_path), new_path_len + 1);
+  caml_enter_blocking_section();
+  ret = symlinkat(old_path, Int_val(v_new_fd), new_path);
+  caml_leave_blocking_section();
+  if (ret == -1) uerror("symlinkat", v_old_path);
+  CAMLreturn(Val_unit);
+}
+
 CAMLprim value caml_eio_getrandom(value v_ba, value v_off, value v_len) {
   CAMLparam1(v_ba);
   ssize_t ret;
