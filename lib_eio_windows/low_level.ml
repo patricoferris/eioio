@@ -235,7 +235,7 @@ let rename ?old_dir old_path ?new_dir new_path =
   eio_renameat old_dir old_path new_dir new_path
 
 
-external eio_symlinkat : string -> Unix.file_descr option -> string -> unit = "caml_eio_posix_symlinkat"
+external eio_symlinkat : string -> Unix.file_descr option -> string -> unit = "caml_eio_windows_symlinkat"
 
 let symlink old_path new_dir new_path =
   with_dirfd "symlink-new" new_dir @@ fun new_dir ->

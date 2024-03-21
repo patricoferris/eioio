@@ -174,7 +174,7 @@ end = struct
 
   let symlink t old_path new_path =
     with_parent_dir t new_path @@ fun dirfd path ->
-    Err.run (Low_level.symlink dirfd old_path) path
+    Err.run (Low_level.symlink old_path dirfd) path
 
   let close t = t.closed <- true
 
