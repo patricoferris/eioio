@@ -86,6 +86,8 @@ val chown : follow:bool -> uid:int64 -> gid:int64 -> dir_fd -> string -> unit
 (** [chown ~follow ~uid ~gid dir path] will change the ownership of [dir / path]
     to [uid, gid]. *)
 
+val chmod : follow:bool -> mode:int -> dir_fd -> string -> unit
+
 val readdir : dir_fd -> string -> string array
 
 val readv : fd -> Cstruct.t array -> int

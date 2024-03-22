@@ -220,3 +220,8 @@ val symlink : link_to:string -> _ t -> unit
 
 val chown : follow:bool -> uid:int64 -> gid:int64 -> _ t -> unit
 (** [chown ~follow ~uid ~gid t] changes the ownership of [t] to be [uid, gid]. *)
+
+val chmod : follow:bool -> perm:int -> _ t -> unit
+(** [chmod ~follow ~perm t] allows you to change the file mode bits.
+
+    @param follow If [true] and [t] is a symlink then change the file mode bits target. *)

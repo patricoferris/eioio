@@ -159,6 +159,9 @@ val chown : follow:bool -> uid:int64 -> gid:int64 -> dir_fd -> string -> unit
     If [follow = true] and [dir / path] is a symlink, then the ownership of the {e target} is
     changed. If it is [false] then the ownership of the symlink itself is changed. *)
 
+val chmod : follow:bool -> mode:int -> dir_fd -> string -> unit
+(** [chmod ~follow ~mode dir path] changes the file mode bits of [dir / path]. *)
+
 val pipe : sw:Switch.t -> fd * fd
 (** [pipe ~sw] returns a pair [r, w] with the readable and writeable ends of a new pipe. *)
 
