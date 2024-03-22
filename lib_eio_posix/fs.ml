@@ -97,6 +97,9 @@ end = struct
   let symlink t target_path new_name =
     Err.run (Low_level.symlink target_path t.fd) new_name
 
+  let chmod t ~follow ~perm path =
+    Err.run (Low_level.chmod ~follow ~mode:perm t.fd) path
+
   let open_dir t ~sw path =
     let flags = Low_level.Open_flags.(rdonly + directory +? path) in
     let fd = Err.run (Low_level.openat ~sw ~mode:0 t.fd path) flags in

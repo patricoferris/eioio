@@ -603,6 +603,9 @@ end = struct
   let symlink t old_path new_path =
     Low_level.symlink old_path t.fd new_path
 
+  let chmod t ~follow ~perm path =
+    Low_level.chmod t.fd ~follow ~mode:perm path
+
   let pp f t = Fmt.string f (String.escaped t.label)
 
   let fd t = t.fd

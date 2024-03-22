@@ -78,6 +78,7 @@ val mkdir : mode:int -> dir_fd -> string -> unit
 val unlink : dir:bool -> dir_fd -> string -> unit
 val rename : dir_fd -> string -> dir_fd -> string -> unit
 val symlink : string -> dir_fd -> string -> unit
+val chmod : follow:bool -> mode:int -> dir_fd -> string -> unit
 
 val readdir : dir_fd -> string -> string array
 

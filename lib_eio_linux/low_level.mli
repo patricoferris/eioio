@@ -153,6 +153,9 @@ val rename : dir_fd -> string -> dir_fd -> string -> unit
 val symlink : string -> dir_fd -> string -> unit
 (** [symlink old_path dir new_path] symlinks to [dir / old_path] as [dir / new_path]. *)
 
+val chmod : follow:bool -> mode:int -> dir_fd -> string -> unit
+(** [chmod ~follow ~mode dir path] changes the file mode bits of [dir / path]. *)
+
 val pipe : sw:Switch.t -> fd * fd
 (** [pipe ~sw] returns a pair [r, w] with the readable and writeable ends of a new pipe. *)
 

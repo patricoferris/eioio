@@ -220,3 +220,8 @@ val symlink : ?exists_ok:bool -> target:_ t -> string -> unit
 
     @param exist_ok If [false] (the default) then we raise {! Fs.Already_exists} if the symlink already exists with that target.
 *)
+
+val chmod : follow:bool -> perm:int -> _ t -> unit
+(** [chmod ~follow ~perm t] allows you to change the file mode bits.
+    
+    @param follow If [true] and [t] is a symlink then change the file mode bits target. *)
