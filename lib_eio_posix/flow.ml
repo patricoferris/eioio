@@ -34,7 +34,7 @@ let truncate_to_iomax xs =
     | _ :: xs -> count (i + 1) xs
   in
   let len = count 0 xs in
-  let arr = Array.make len Cstruct.empty in
+  let arr = Array.make len Bstruct.empty in
   let rec fill i xs =
     if i = len then arr
     else (
@@ -134,7 +134,7 @@ module Secure_random = struct
 
   let single_read () buf =
     Low_level.getrandom buf;
-    Cstruct.length buf
+    Bstruct.length buf
 
   let read_methods = []
 end

@@ -18,16 +18,16 @@ module Rcfd = Rcfd
 module Fork_action = Fork_action
 module Thread_pool = Thread_pool
 
-external eio_readlinkat : Unix.file_descr -> string -> Cstruct.t -> int = "eio_unix_readlinkat"
+external eio_readlinkat : Unix.file_descr -> string -> Bstruct.t -> int = "eio_unix_readlinkat"
 
 let read_link_unix fd path =
   match fd with
   | None -> Unix.readlink path
   | Some fd ->
     let rec aux size =
-      let buf = Cstruct.create_unsafe size in
+      let buf = Bstruct.create size in
       let len = eio_readlinkat fd path buf in
-      if len < size then Cstruct.to_string ~len buf
+      if len < size then Bstruct.to_string ~len buf
       else aux (size * 4)
     in
     aux 1024

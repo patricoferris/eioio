@@ -118,7 +118,7 @@ val bytes : t -> ?off:int -> ?len:int -> Bytes.t -> unit
 (** [bytes t ?off ?len bytes] copies [bytes] into the serializer's
     internal buffer. It is safe to modify [bytes] after this call returns. *)
 
-val cstruct : t -> Cstruct.t -> unit
+val cstruct : t -> Bstruct.t -> unit
 (** [cstruct t cs] copies [cs] into the serializer's internal buffer.
     It is safe to modify [cs] after this call returns.
     For large cstructs, it may be more efficient to use {!schedule_cstruct}. *)
@@ -137,7 +137,7 @@ val make_formatter : t -> Format.formatter
 
 val write_gen
   :  t
-  -> blit:('a -> src_off:int -> Cstruct.buffer -> dst_off:int -> len:int -> unit)
+  -> blit:('a -> src_off:int -> bytes -> dst_off:int -> len:int -> unit)
   -> off:int
   -> len:int
   -> 'a -> unit
@@ -214,7 +214,7 @@ end
     Unbuffered writes do not involve copying bytes to the serializer's internal
     buffer. *)
 
-val schedule_cstruct : t -> Cstruct.t -> unit
+val schedule_cstruct : t -> Bstruct.t -> unit
 (** [schedule_cstruct t cs] schedules [cs] to be written.
     [cs] is not copied in this process,
     so [cs] should only be modified after [t] has been {!flush}ed. *)
@@ -285,7 +285,7 @@ val create : ?sw:Switch.t -> int -> t
     @param sw When the switch is finished, {!abort} is called.
               If you don't pass a switch, you may want to call [abort] manually on error. *)
 
-val of_buffer : ?sw:Switch.t -> Cstruct.buffer -> t
+val of_buffer : ?sw:Switch.t -> bytes -> t
 (** [of_buffer ~sw buf] creates a serializer, using [buf] as its internal
     buffer. The serializer takes ownership of [buf] until the serializer has
     been closed and flushed of all output. *)
@@ -294,7 +294,7 @@ val abort : t -> unit
 (** [abort t] is like {!close} followed by {!drain}, except that any pending
     flush operations fail instead of completing successfully. *)
 
-val await_batch : t -> Cstruct.t list
+val await_batch : t -> Bstruct.t list
 (** [await_batch t] returns a list of buffers that should be written.
     If no data is currently available, it waits until some is.
     After performing a write, call {!shift} with the number of bytes written.
@@ -314,7 +314,7 @@ val shift : t -> int -> unit
     development. They are not the suggested way of driving a serializer in a
     production setting. *)
 
-val serialize : t -> (Cstruct.t list -> (int, [`Closed]) result) -> (unit, [> `Closed]) result
+val serialize : t -> (Bstruct.t list -> (int, [`Closed]) result) -> (unit, [> `Closed]) result
 (** [serialize t writev] calls [writev bufs] each time [t] is ready to write.
     In the event that [writev] indicates a partial write, {!serialize} will
     call {!Fiber.yield} before continuing. *)
@@ -323,7 +323,7 @@ val serialize_to_string : t -> string
 (** [serialize_to_string t] runs [t], collecting the output into a string and
     returning it. [serializie_to_string t] immediately closes [t]. *)
 
-val serialize_to_cstruct : t -> Cstruct.t
+val serialize_to_cstruct : t -> Bstruct.t
 (** [serialize_to_cstruct t] runs [t], collecting the output into a cstruct
     and returning it. [serialize_to_cstruct t] immediately closes [t]. *)
 

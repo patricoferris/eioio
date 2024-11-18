@@ -61,7 +61,7 @@ val of_flow : ?initial_size:int -> max_size:int -> _ Flow.source -> t
                     you can usually just set it much larger than you expect
                     to need. *)
 
-val of_buffer : Cstruct.buffer -> t
+val of_buffer : bytes -> t
 (** [of_buffer buf] is a reader that reads from [buf].
     [buf] is used directly, without being copied.
     [eof_seen (of_buffer buf) = true].
@@ -284,7 +284,7 @@ val buffered_bytes : t -> int
 (** [buffered_bytes t] is the number of bytes that can be read without
     reading from the underlying flow. *)
 
-val peek : t -> Cstruct.t
+val peek : t -> Bstruct.t
 (** [peek t] returns a view onto the active part of [t]'s internal buffer.
 
     Performing any operation that might add to the buffer may invalidate this,

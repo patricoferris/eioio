@@ -783,3 +783,4 @@ module Private : sig
     (** Backends should use this for {!Eio.Stdenv.debug}. *)
   end
 end
+module Bstruct = Bstruct

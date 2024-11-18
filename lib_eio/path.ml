@@ -144,14 +144,14 @@ let load (t, path) =
     let size = File.size flow in
     if Optint.Int63.(compare size (of_int Sys.max_string_length)) = 1 then
       raise @@ Fs.err File_too_large;
-    let buf = Cstruct.create (Optint.Int63.to_int size) in
+    let buf = Bstruct.create (Optint.Int63.to_int size) in
     let rec loop buf got =
       match Flow.single_read flow buf with
-      | n -> loop (Cstruct.shift buf n) (n + got)
+      | n -> loop (Bstruct.shift buf n) (n + got)
       | exception End_of_file -> got
     in
     let got = loop buf 0 in
-    Cstruct.to_string ~len:got buf
+    Bstruct.to_string ~len:got buf
   with Exn.Io _ as ex ->
     let bt = Printexc.get_raw_backtrace () in
     Exn.reraise_with_context ex bt "loading %a" pp (t, path)

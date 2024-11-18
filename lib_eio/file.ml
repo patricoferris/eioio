@@ -70,7 +70,7 @@ module Pi = struct
   module type READ = sig
     include Flow.Pi.SOURCE
 
-    val pread : t -> file_offset:Optint.Int63.t -> Cstruct.t list -> int
+    val pread : t -> file_offset:Optint.Int63.t -> Bstruct.t list -> int
     val stat : t -> Stat.t
     val seek : t -> Optint.Int63.t -> [`Set | `Cur | `End] -> Optint.Int63.t
     val close : t -> unit
@@ -80,7 +80,7 @@ module Pi = struct
     include Flow.Pi.SINK
     include READ with type t := t
 
-    val pwrite : t -> file_offset:Optint.Int63.t -> Cstruct.t list -> int
+    val pwrite : t -> file_offset:Optint.Int63.t -> Bstruct.t list -> int
     val sync : t -> unit
     val truncate : t -> Optint.Int63.t -> unit
   end
@@ -113,16 +113,16 @@ let size t = (stat t).size
 let pread (Resource.T (t, ops)) ~file_offset bufs =
   let module X = (val (Resource.get ops Pi.Read)) in
   let got = X.pread t ~file_offset bufs in
-  assert (got > 0 && got <= Cstruct.lenv bufs);
+  assert (got > 0 && got <= Bstruct.lenv bufs);
   got
 
 let pread_exact (Resource.T (t, ops)) ~file_offset bufs =
   let module X = (val (Resource.get ops Pi.Read)) in
   let rec aux ~file_offset bufs =
-    if Cstruct.lenv bufs > 0 then (
+    if Bstruct.lenv bufs > 0 then (
       let got = X.pread t ~file_offset bufs in
       let file_offset = Optint.Int63.add file_offset (Optint.Int63.of_int got) in
-      aux ~file_offset (Cstruct.shiftv bufs got)
+      aux ~file_offset (Bstruct.shiftv bufs got)
     )
   in
   aux ~file_offset bufs
@@ -130,16 +130,16 @@ let pread_exact (Resource.T (t, ops)) ~file_offset bufs =
 let pwrite_single (Resource.T (t, ops)) ~file_offset bufs =
   let module X = (val (Resource.get ops Pi.Write)) in
   let got = X.pwrite t ~file_offset bufs in
-  assert (got > 0 && got <= Cstruct.lenv bufs);
+  assert (got > 0 && got <= Bstruct.lenv bufs);
   got
 
 let pwrite_all (Resource.T (t, ops)) ~file_offset bufs =
   let module X = (val (Resource.get ops Pi.Write)) in
   let rec aux ~file_offset bufs =
-    if Cstruct.lenv bufs > 0 then (
+    if Bstruct.lenv bufs > 0 then (
       let got = X.pwrite t ~file_offset bufs in
       let file_offset = Optint.Int63.add file_offset (Optint.Int63.of_int got) in
-      aux ~file_offset (Cstruct.shiftv bufs got)
+      aux ~file_offset (Bstruct.shiftv bufs got)
     )
   in
   aux ~file_offset bufs

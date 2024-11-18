@@ -18,14 +18,14 @@ type t = [`Generic | `Unix] Eio.Net.ty r
 val send_msg :
   [> `Platform of [>`Unix] | `Socket | `Stream] r ->
   ?fds:Fd.t list ->
-  Cstruct.t list -> unit
+  Bstruct.t list -> unit
 (** Like {!Eio.Flow.write}, but allows passing file descriptors (for Unix-domain sockets). *)
 
 val recv_msg_with_fds :
   [> `Platform of [>`Unix] | `Socket | `Stream] r ->
   sw:Switch.t ->
   max_fds:int ->
-  Cstruct.t list ->
+  Bstruct.t list ->
   int * Fd.t list
 (** Like {!Eio.Flow.single_read}, but also allows receiving file descriptors (for Unix-domain sockets).
 

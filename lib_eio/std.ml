@@ -1,3 +1,4 @@
+module Bstruct = Eio__core.Bstruct
 module Promise = Eio__core.Promise
 module Fiber = Eio__core.Fiber
 module Switch = Eio__core.Switch

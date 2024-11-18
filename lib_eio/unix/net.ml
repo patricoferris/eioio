@@ -34,7 +34,7 @@ let send_msg (Eio.Resource.T (t, ops)) ?(fds=[]) bufs =
   let module X = (val (Eio.Resource.get ops Pi.Stream_socket)) in
   let rec aux ~fds bufs =
     let sent = X.send_msg t ~fds bufs in
-    match Cstruct.shiftv bufs sent with
+    match Bstruct.shiftv bufs sent with
     | [] -> ()
     | bufs -> aux bufs ~fds:[]
   in

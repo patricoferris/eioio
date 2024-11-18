@@ -34,25 +34,25 @@ module Mock_flow = struct
 
   let rec takev len = function
     | [] -> []
-    | x :: _ when Cstruct.length x >= len -> [Cstruct.sub x 0 len]
-    | x :: xs -> x :: takev (len - Cstruct.length x) xs
+    | x :: _ when Bstruct.length x >= len -> [Bstruct.sub x 0 len]
+    | x :: xs -> x :: takev (len - Bstruct.length x) xs
 
   let write ~pp t bufs =
     let size = Handler.run t.on_copy_bytes in
-    let len = min (Cstruct.lenv bufs) size in
+    let len = min (Bstruct.lenv bufs) size in
     let bufs = takev len bufs in
     traceln "%s: wrote %a" t.label pp bufs;
     len
 
   let single_write t bufs =
     let pp f = function
-      | [buf] -> Fmt.pf f "@[<v>%a@]" t.pp (Cstruct.to_string buf)
-      | bufs -> Fmt.pf f "@[<v>%a@]" (Fmt.Dump.list (Fmt.using Cstruct.to_string t.pp)) bufs
+      | [buf] -> Fmt.pf f "@[<v>%a@]" t.pp (Bstruct.to_string buf)
+      | bufs -> Fmt.pf f "@[<v>%a@]" (Fmt.Dump.list (Fmt.using Bstruct.to_string t.pp)) bufs
     in
     write ~pp t bufs
 
   let copy_rsb_iovec t bufs =
-    let pp f bufs = Fmt.pf f "(rsb) @[<v>%a@]" (Fmt.Dump.list (Fmt.using Cstruct.to_string t.pp)) bufs in
+    let pp f bufs = Fmt.pf f "(rsb) @[<v>%a@]" (Fmt.Dump.list (Fmt.using Bstruct.to_string t.pp)) bufs in
     write ~pp t bufs
 
   (* Test optimised copying using Read_source_buffer *)
@@ -65,9 +65,9 @@ module Mock_flow = struct
     try
       while true do
         let size = Handler.run t.on_copy_bytes in
-        let buf = Cstruct.create size in
+        let buf = Bstruct.create size in
         let n = Eio.Flow.single_read src buf in
-        traceln "%s: wrote @[<v>%a@]" t.label t.pp (Cstruct.to_string (Cstruct.sub buf 0 n))
+        traceln "%s: wrote @[<v>%a@]" t.label t.pp (Bstruct.to_string (Bstruct.sub buf 0 n))
       done
     with End_of_file -> ()
 
@@ -76,9 +76,9 @@ module Mock_flow = struct
   let single_read t buf =
     let data = Handler.run t.on_read in
     let len = String.length data in
-    if Cstruct.length buf < len then
+    if Bstruct.length buf < len then
       Fmt.failwith "%s: read buffer too short for %a!" t.label t.pp data;
-    Cstruct.blit_from_string data 0 buf 0 len;
+    Bstruct.blit_from_string data 0 buf 0 len;
     traceln "%s: read @[<v>%a@]" t.label t.pp data;
     len
 

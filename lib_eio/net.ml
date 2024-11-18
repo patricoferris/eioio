@@ -197,8 +197,8 @@ module Pi = struct
   module type DATAGRAM_SOCKET = sig
     type tag
     include Flow.Pi.SHUTDOWN
-    val send : t -> ?dst:Sockaddr.datagram -> Cstruct.t list -> unit
-    val recv : t -> Cstruct.t -> Sockaddr.datagram * int
+    val send : t -> ?dst:Sockaddr.datagram -> Bstruct.t list -> unit
+    val recv : t -> Bstruct.t -> Sockaddr.datagram * int
     val close : t -> unit
   end
 

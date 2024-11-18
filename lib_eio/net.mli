@@ -261,12 +261,12 @@ val datagram_socket :
       @param reuse_addr Set the {!Unix.SO_REUSEADDR} socket option.
       @param reuse_port Set the {!Unix.SO_REUSEPORT} socket option. *)
 
-val send : _ datagram_socket -> ?dst:Sockaddr.datagram -> Cstruct.t list -> unit
+val send : _ datagram_socket -> ?dst:Sockaddr.datagram -> Bstruct.t list -> unit
 (** [send sock buf] sends the data in [buf] using the the datagram socket [sock].
 
     @param dst If [sock] isn't connected, this provides the destination. *)
 
-val recv : _ datagram_socket -> Cstruct.t -> Sockaddr.datagram * int
+val recv : _ datagram_socket -> Bstruct.t -> Sockaddr.datagram * int
 (** [recv sock buf] receives data from the socket [sock] putting it in [buf]. The number of bytes received is 
     returned along with the sender address and port. If the [buf] is too small then excess bytes may be discarded
     depending on the type of the socket the message is received from. *)
@@ -316,8 +316,8 @@ module Pi : sig
   module type DATAGRAM_SOCKET = sig
     type tag
     include Flow.Pi.SHUTDOWN
-    val send : t -> ?dst:Sockaddr.datagram -> Cstruct.t list -> unit
-    val recv : t -> Cstruct.t -> Sockaddr.datagram * int
+    val send : t -> ?dst:Sockaddr.datagram -> Bstruct.t list -> unit
+    val recv : t -> Bstruct.t -> Sockaddr.datagram * int
     val close : t -> unit
   end
 

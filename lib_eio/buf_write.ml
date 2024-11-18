@@ -35,8 +35,6 @@
   ----------------------------------------------------------------------------*)
 
 
-type bigstring = Bigstringaf.t
-
 exception Dequeue_empty
 
 module Deque(T:sig type t val sentinel : t end) : sig
@@ -134,10 +132,10 @@ end = struct
 end
 
 module Buffers = Deque(struct
-  type t = Cstruct.t
+  type t = Bstruct.t 
   let sentinel =
     let deadbeef = "\222\173\190\239" in
-    Cstruct.of_string deadbeef
+    Bstruct.of_string deadbeef
 end)
 
 module Flushes = Deque(struct
@@ -154,7 +152,7 @@ type state =
   | Closed
 
 type t =
-  { mutable buffer         : bigstring
+  { mutable buffer         : bytes 
   ; mutable scheduled_pos  : int        (* How much of [buffer] is in [scheduled] *)
   ; mutable write_pos      : int        (* How much of [buffer] has been written to *)
   ; scheduled              : Buffers.t
@@ -187,7 +185,7 @@ let wake_writer t =
 
 (* Schedule [cs] now, without any checks. Users use {!schedule_cstruct} instead. *)
 let schedule_iovec t cs =
-  t.bytes_received <- t.bytes_received + Cstruct.length cs;
+  t.bytes_received <- t.bytes_received + Bstruct.length cs;
   Buffers.enqueue cs t.scheduled
 
 (* Schedule all pending data in [buffer]. *)
@@ -195,18 +193,18 @@ let flush_buffer t =
   let len = t.write_pos - t.scheduled_pos in
   if len > 0 then begin
     let off = t.scheduled_pos in
-    schedule_iovec t (Cstruct.of_bigarray ~off ~len t.buffer);
+    schedule_iovec t (Bstruct.of_bytes ~off ~len t.buffer);
     t.scheduled_pos <- t.write_pos
   end
 
 let free_bytes_in_buffer t =
-  let buf_len = Bigstringaf.length t.buffer in
+  let buf_len = Bytes.length t.buffer in
   buf_len - t.write_pos
 
 let schedule_cstruct t cs =
   writable_exn t;
   flush_buffer t;
-  if Cstruct.length cs > 0 then (
+  if Bstruct.length cs > 0 then (
     schedule_iovec t cs;
     wake_writer t;
   )
@@ -214,7 +212,7 @@ let schedule_cstruct t cs =
 let ensure_space t len =
   if free_bytes_in_buffer t < len then begin
     flush_buffer t;
-    t.buffer <- Bigstringaf.create (max (Bigstringaf.length t.buffer) len);
+    t.buffer <- Bytes.make (max (Bytes.length t.buffer) len) '\000';
     t.write_pos <- 0;
     t.scheduled_pos <- 0
   end
@@ -229,8 +227,10 @@ let write_gen t ~blit ~off ~len a =
   blit a ~src_off:off t.buffer ~dst_off:t.write_pos ~len;
   advance_pos t len
 
+let blit ss ~src_off ds ~dst_off ~len = Bytes.blit ss src_off ds dst_off len
+
 let string =
-  let blit = Bigstringaf.blit_from_string in
+  let blit ss = blit (Bytes.of_string ss) in
   fun t ?(off=0) ?len a ->
     let len =
       match len with
@@ -240,7 +240,6 @@ let string =
     write_gen t ~blit ~off ~len a
 
 let bytes =
-  let blit = Bigstringaf.blit_from_bytes in
   fun t ?(off=0) ?len a ->
     let len =
       match len with
@@ -249,60 +248,61 @@ let bytes =
     in
     write_gen t ~blit ~off ~len a
 
-let cstruct t { Cstruct.buffer; off; len } =
+let cstruct t { Bstruct.buffer; off; len } =
+  let blit ss ~src_off ds ~dst_off ~len = Bytes.blit ss src_off ds dst_off len in
   write_gen t ~off ~len buffer
-    ~blit:Bigstringaf.unsafe_blit
+    ~blit:blit
 
 let char t c =
   writable_exn t;
   ensure_space t 1;
-  Bigstringaf.unsafe_set t.buffer t.write_pos c;
+  Bytes.unsafe_set t.buffer t.write_pos c;
   advance_pos t 1
 
 let uint8 t b =
   writable_exn t;
   ensure_space t 1;
-  Bigstringaf.unsafe_set t.buffer t.write_pos (Char.unsafe_chr b);
+  Bytes.unsafe_set t.buffer t.write_pos (Char.unsafe_chr b);
   advance_pos t 1
 
 module BE = struct
   let uint16 t i =
     writable_exn t;
     ensure_space t 2;
-    Bigstringaf.unsafe_set_int16_be t.buffer t.write_pos i;
+    Bytes.set_int16_be t.buffer t.write_pos i;
     advance_pos t 2
 
   let uint32 t i =
     writable_exn t;
     ensure_space t 4;
-    Bigstringaf.unsafe_set_int32_be t.buffer t.write_pos i;
+    Bytes.set_int32_be t.buffer t.write_pos i;
     advance_pos t 4
 
   let uint48 t i =
     writable_exn t;
     ensure_space t 6;
-    Bigstringaf.unsafe_set_int16_be t.buffer t.write_pos
+    Bytes.set_int16_be t.buffer t.write_pos
       Int64.(to_int (shift_right_logical i 32));
-    Bigstringaf.unsafe_set_int32_be t.buffer (t.write_pos + 2)
+    Bytes.set_int32_be t.buffer (t.write_pos + 2)
       Int64.(to_int32 i);
     advance_pos t 6
 
   let uint64 t i =
     writable_exn t;
     ensure_space t 8;
-    Bigstringaf.unsafe_set_int64_be t.buffer t.write_pos i;
+    Bytes.set_int64_be t.buffer t.write_pos i;
     advance_pos t 8
 
   let float t f =
     writable_exn t;
     ensure_space t 4;
-    Bigstringaf.unsafe_set_int32_be t.buffer t.write_pos (Int32.bits_of_float f);
+    Bytes.set_int32_be t.buffer t.write_pos (Int32.bits_of_float f);
     advance_pos t 4
 
   let double t d =
     writable_exn t;
     ensure_space t 8;
-    Bigstringaf.unsafe_set_int64_be t.buffer t.write_pos (Int64.bits_of_float d);
+    Bytes.set_int64_be t.buffer t.write_pos (Int64.bits_of_float d);
     advance_pos t 8
 end
 
@@ -310,40 +310,40 @@ module LE = struct
   let uint16 t i =
     writable_exn t;
     ensure_space t 2;
-    Bigstringaf.unsafe_set_int16_le t.buffer t.write_pos i;
+    Bytes.set_int16_le t.buffer t.write_pos i;
     advance_pos t 2
 
   let uint32 t i =
     writable_exn t;
     ensure_space t 4;
-    Bigstringaf.unsafe_set_int32_le t.buffer t.write_pos i;
+    Bytes.set_int32_le t.buffer t.write_pos i;
     advance_pos t 4
 
   let uint48 t i =
     writable_exn t;
     ensure_space t 6;
-    Bigstringaf.unsafe_set_int16_le t.buffer t.write_pos
+    Bytes.set_int16_le t.buffer t.write_pos
       Int64.(to_int i);
-    Bigstringaf.unsafe_set_int32_le t.buffer (t.write_pos + 2)
+    Bytes.set_int32_le t.buffer (t.write_pos + 2)
       Int64.(to_int32 (shift_right_logical i 16));
     advance_pos t 6
 
   let uint64 t i =
     writable_exn t;
     ensure_space t 8;
-    Bigstringaf.unsafe_set_int64_le t.buffer t.write_pos i;
+    Bytes.set_int64_le t.buffer t.write_pos i;
     advance_pos t 8
 
   let float t f =
     writable_exn t;
     ensure_space t 4;
-    Bigstringaf.unsafe_set_int32_le t.buffer t.write_pos (Int32.bits_of_float f);
+    Bytes.set_int32_le t.buffer t.write_pos (Int32.bits_of_float f);
     advance_pos t 4
 
   let double t d =
     writable_exn t;
     ensure_space t 8;
-    Bigstringaf.unsafe_set_int64_le t.buffer t.write_pos (Int64.bits_of_float d);
+    Bytes.set_int64_le t.buffer t.write_pos (Int64.bits_of_float d);
     advance_pos t 8
 end
 
@@ -388,7 +388,7 @@ let of_buffer ?sw buffer =
   t
 
 let create ?sw size =
-  of_buffer ?sw (Bigstringaf.create size)
+  of_buffer ?sw (Bytes.create size)
 
 let pending_bytes t =
   (t.write_pos - t.scheduled_pos) + (t.bytes_received - t.bytes_written)
@@ -420,7 +420,7 @@ let flush t =
 
 let make_formatter t =
   Format.make_formatter
-    (fun buf off len -> write_gen t buf ~off ~len ~blit:Bigstringaf.blit_from_string)
+    (fun buf off len -> write_gen t buf ~off ~len ~blit:(fun s -> blit (Bytes.of_string s)))
     (fun () -> flush t)
 
 let printf t =
@@ -433,7 +433,7 @@ let printf t =
       let is_formatting = ref true in
       let ppf =
         Format.make_formatter
-          (fun buf off len -> write_gen t buf ~off ~len ~blit:Bigstringaf.blit_from_string)
+          (fun buf off len -> write_gen t buf ~off ~len ~blit:(fun s -> blit (Bytes.of_string s)))
           (fun () ->
              (* As per the Format module manual, an explicit flush writes to the
                 output channel and ensures that "all pending text is displayed"
@@ -453,11 +453,11 @@ let printf t =
 
 let rec shift_buffers t written =
   match Buffers.dequeue_exn t.scheduled with
-  | { Cstruct.len; _ } as iovec ->
+  | { Bstruct.len; _ } as iovec ->
     if len <= written then
       shift_buffers t (written - len)
     else
-      Buffers.enqueue_front (Cstruct.shift iovec written) t.scheduled
+      Buffers.enqueue_front (Bstruct.shift iovec written) t.scheduled
   | exception Dequeue_empty ->
     assert (written = 0);
     if t.scheduled_pos = t.write_pos then begin
@@ -547,12 +547,12 @@ let serialize_to_string t =
   match await_batch t with
   | exception End_of_file -> ""
   | iovecs ->
-    let len = Cstruct.lenv iovecs in
+    let len = Bstruct.lenv iovecs in
     let bytes = Bytes.create len in
     let pos = ref 0 in
     List.iter (function
-        | { Cstruct.buffer; off; len } ->
-          Bigstringaf.unsafe_blit_to_bytes buffer ~src_off:off bytes ~dst_off:!pos ~len;
+        | { Bstruct.buffer; off; len } ->
+          blit buffer ~src_off:off bytes ~dst_off:!pos ~len;
           pos := !pos + len)
       iovecs;
     shift t len;
@@ -562,10 +562,10 @@ let serialize_to_string t =
 let serialize_to_cstruct t =
   close t;
   match await_batch t with
-  | exception End_of_file -> Cstruct.empty
+  | exception End_of_file -> Bstruct.empty
   | iovecs ->
-    let data = Cstruct.concat iovecs in
-    shift t (Cstruct.length data);
+    let data = Bstruct.concat iovecs in
+    shift t (Bstruct.length data);
     assert (not (has_pending_output t));
     data
 
@@ -574,7 +574,7 @@ let drain =
     match await_batch t with
     | exception End_of_file -> acc
     | iovecs ->
-      let len = Cstruct.lenv iovecs in
+      let len = Bstruct.lenv iovecs in
       shift t len;
       loop t (len + acc)
   in

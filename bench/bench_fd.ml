@@ -14,7 +14,7 @@ let main ~domain_mgr zero =
   let len = 64 * 1024 in
   let n_fibers = 4 in
   let n_domains = 4 in
-  let buf = Cstruct.create len in
+  let buf = Bstruct.create len in
   let run1 () =
     for _ = 1 to iters do Eio.Flow.read_exact zero buf done
   in

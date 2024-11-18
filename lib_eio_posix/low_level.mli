@@ -33,12 +33,12 @@ val accept : sw:Switch.t -> fd -> fd * Unix.sockaddr
 
 val shutdown : fd -> Unix.shutdown_command -> unit
 
-val recv_msg : fd -> Cstruct.t array -> Unix.sockaddr * int
-val recv_msg_with_fds : sw:Switch.t -> max_fds:int -> fd -> Cstruct.t array -> Unix.sockaddr * int * fd list
+val recv_msg : fd -> Bstruct.t array -> Unix.sockaddr * int
+val recv_msg_with_fds : sw:Switch.t -> max_fds:int -> fd -> Bstruct.t array -> Unix.sockaddr * int * fd list
 
-val send_msg : fd -> ?fds:fd list -> ?dst:Unix.sockaddr -> Cstruct.t array -> int
+val send_msg : fd -> ?fds:fd list -> ?dst:Unix.sockaddr -> Bstruct.t array -> int
 
-val getrandom : Cstruct.t -> unit
+val getrandom : Bstruct.t -> unit
 
 val lseek : fd -> Optint.Int63.t -> [`Set | `Cur | `End] -> Optint.Int63.t
 val fsync : fd -> unit
@@ -84,11 +84,11 @@ val symlink : link_to:string -> dir_fd -> string -> unit
 
 val readdir : dir_fd -> string -> string array
 
-val readv : fd -> Cstruct.t array -> int
-val writev : fd -> Cstruct.t array -> int
+val readv : fd -> Bstruct.t array -> int
+val writev : fd -> Bstruct.t array -> int
 
-val preadv : file_offset:Optint.Int63.t -> fd -> Cstruct.t array -> int
-val pwritev : file_offset:Optint.Int63.t -> fd -> Cstruct.t array -> int
+val preadv : file_offset:Optint.Int63.t -> fd -> Bstruct.t array -> int
+val pwritev : file_offset:Optint.Int63.t -> fd -> Bstruct.t array -> int
 
 val pipe : sw:Switch.t -> fd * fd
 

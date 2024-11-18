@@ -2,4 +2,4 @@
   (name eio)
   (public_name eio)
   (flags (:standard -open Eio__core -open Eio__core.Private))
-  (libraries eio__core cstruct lwt-dllist fmt bigstringaf optint mtime))
+  (libraries eio__core lwt-dllist fmt bigstringaf optint mtime))

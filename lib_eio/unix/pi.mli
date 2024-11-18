@@ -3,8 +3,8 @@ open Eio.Std
 module type STREAM_SOCKET = sig
   include Eio.Net.Pi.STREAM_SOCKET
 
-  val send_msg : t -> fds:Fd.t list -> Cstruct.t list -> int
-  val recv_msg_with_fds : t -> sw:Switch.t -> max_fds:int -> Cstruct.t list -> int * Fd.t list
+  val send_msg : t -> fds:Fd.t list -> Bstruct.t list -> int
+  val recv_msg_with_fds : t -> sw:Switch.t -> max_fds:int -> Bstruct.t list -> int * Fd.t list
 
   val fd : t -> Fd.t
 end

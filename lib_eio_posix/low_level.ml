@@ -88,8 +88,8 @@ let accept ~sw sock =
 let shutdown sock cmd =
   Fd.use_exn "shutdown" sock (fun fd -> Unix.shutdown fd cmd)
 
-external eio_send_msg : Unix.file_descr -> int -> Unix.file_descr list -> Unix.sockaddr option -> Cstruct.t array -> int = "caml_eio_posix_send_msg"
-external eio_recv_msg : Unix.file_descr -> int -> Cstruct.t array -> Unix.sockaddr * int * Unix.file_descr list = "caml_eio_posix_recv_msg"
+external eio_send_msg : Unix.file_descr -> int -> Unix.file_descr list -> Unix.sockaddr option -> Bstruct.t array -> int = "caml_eio_posix_send_msg"
+external eio_recv_msg : Unix.file_descr -> int -> Bstruct.t array -> Unix.sockaddr * int * Unix.file_descr list = "caml_eio_posix_recv_msg"
 
 let send_msg fd ?(fds = []) ?dst buf =
   Fd.use_exn "send_msg" fd @@ fun fd ->
@@ -110,9 +110,9 @@ let recv_msg_with_fds ~sw ~max_fds fd buf =
   in
   (addr, got, Eio_unix.Fd.of_unix_list ~sw fds)
 
-external eio_getrandom : Cstruct.buffer -> int -> int -> int = "caml_eio_posix_getrandom"
+external eio_getrandom : bytes -> int -> int -> int = "caml_eio_posix_getrandom"
 
-let getrandom { Cstruct.buffer; off; len } =
+let getrandom { Bstruct.buffer; off; len } =
   let rec loop n =
     if n = len then
       ()
@@ -135,11 +135,11 @@ let read_entries h =
   in
   aux []
 
-external eio_readv : Unix.file_descr -> Cstruct.t array -> int = "caml_eio_posix_readv"
-external eio_writev : Unix.file_descr -> Cstruct.t array -> int = "caml_eio_posix_writev"
+external eio_readv : Unix.file_descr -> Bstruct.t array -> int = "caml_eio_posix_readv"
+external eio_writev : Unix.file_descr -> Bstruct.t array -> int = "caml_eio_posix_writev"
 
-external eio_preadv : Unix.file_descr -> Cstruct.t array -> Optint.Int63.t -> int = "caml_eio_posix_preadv"
-external eio_pwritev : Unix.file_descr -> Cstruct.t array -> Optint.Int63.t -> int = "caml_eio_posix_pwritev"
+external eio_preadv : Unix.file_descr -> Bstruct.t array -> Optint.Int63.t -> int = "caml_eio_posix_preadv"
+external eio_pwritev : Unix.file_descr -> Bstruct.t array -> Optint.Int63.t -> int = "caml_eio_posix_pwritev"
 
 let readv fd bufs =
   if Fd.is_blocking fd then await_readable "readv" fd;

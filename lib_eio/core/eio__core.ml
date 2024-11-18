@@ -1,4 +1,5 @@
 module Promise = Promise
+module Bstruct = Bstruct
 module Fiber = Fiber
 module Switch = Switch
 module Cancel = Cancel

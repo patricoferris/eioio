@@ -9,14 +9,14 @@ let n_bytes = n_chunks * chunk_size
 let run_client sock =
   Fiber.both
     (fun () ->
-       let chunk = Cstruct.create chunk_size in
+       let chunk = Bstruct.create chunk_size in
        for _ = 1 to n_chunks do
          Eio.Flow.write sock [chunk]
        done;
        Eio.Flow.shutdown sock `Send
     )
     (fun () ->
-       let chunk = Cstruct.create chunk_size in
+       let chunk = Bstruct.create chunk_size in
        for _ = 1 to n_chunks do
          Eio.Flow.read_exact sock chunk
        done

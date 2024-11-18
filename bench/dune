@@ -5,4 +5,4 @@
   (package eio_main)
   (deps ./main.exe)
   (action (progn))  ; Don't run as a test
-  (libraries eio_main yojson))
+  (libraries eio_posix yojson))

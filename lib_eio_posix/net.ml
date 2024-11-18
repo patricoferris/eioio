@@ -59,7 +59,7 @@ module Datagram_socket = struct
   let send t ?dst buf =
     let dst = Option.map Eio_unix.Net.sockaddr_to_unix dst in
     let sent = Err.run (Low_level.send_msg t ?dst) (Array.of_list buf) in
-    assert (sent = Cstruct.lenv buf)
+    assert (sent = Bstruct.lenv buf)
 
   let recv t buf =
     let addr, recv = Err.run (Low_level.recv_msg t) [| buf |] in

@@ -3,7 +3,7 @@ open Std
 type shutdown_command = [ `Receive | `Send | `All ]
 
 type 't read_method = ..
-type 't read_method += Read_source_buffer of ('t -> (Cstruct.t list -> int) -> unit)
+type 't read_method += Read_source_buffer of ('t -> (Bstruct.t list -> int) -> unit)
 
 type source_ty = [`R | `Flow]
 type 'a source = ([> source_ty] as 'a) r
@@ -18,12 +18,12 @@ module Pi = struct
   module type SOURCE = sig
     type t
     val read_methods : t read_method list
-    val single_read : t -> Cstruct.t -> int
+    val single_read : t -> Bstruct.t -> int
   end
 
   module type SINK = sig
     type t
-    val single_write : t -> Cstruct.t list -> int
+    val single_write : t -> Bstruct.t list -> int
     val copy : t -> src:_ source -> unit
   end
 
@@ -61,17 +61,17 @@ module Pi = struct
 
   let simple_copy ~single_write t ~src:(Resource.T (src, src_ops)) =
     let rec write_all buf =
-      if not (Cstruct.is_empty buf) then (
+      if not (Bstruct.is_empty buf) then (
         let sent = single_write t [buf] in
-        write_all (Cstruct.shift buf sent)
+        write_all (Bstruct.shift buf sent)
       )
     in
     let module Src = (val (Resource.get src_ops Source)) in
     try
-      let buf = Cstruct.create 4096 in
+      let buf = Bstruct.create 4096 in
       while true do
         let got = Src.single_read src buf in
-        write_all (Cstruct.sub buf 0 got)
+        write_all (Bstruct.sub buf 0 got)
       done
     with End_of_file -> ()
 end
@@ -83,17 +83,17 @@ let close = Resource.close
 let single_read (Resource.T (t, ops)) buf =
   let module X = (val (Resource.get ops Source)) in
   let got = X.single_read t buf in
-  assert (got > 0 && got <= Cstruct.length buf);
+  assert (got > 0 && got <= Bstruct.length buf);
   got
 
 let rec read_exact t buf =
-  if Cstruct.length buf > 0 then (
+  if Bstruct.length buf > 0 then (
     let got = single_read t buf in
-    read_exact t (Cstruct.shift buf got)
+    read_exact t (Bstruct.shift buf got)
   )
 
 module Cstruct_source = struct
-  type t = Cstruct.t list ref
+  type t = Bstruct.t list ref
 
   let create data = ref data
 
@@ -101,10 +101,10 @@ module Cstruct_source = struct
     let rec aux () =
       match !t with
       | [] -> raise End_of_file
-      | x :: xs when Cstruct.length x = 0 -> t := xs; aux ()
+      | x :: xs when Bstruct.length x = 0 -> t := xs; aux ()
       | xs ->
         let n = fn xs in
-        t := Cstruct.shiftv xs n
+        t := Bstruct.shiftv xs n
     in
     aux ()
 
@@ -112,7 +112,7 @@ module Cstruct_source = struct
     [ Read_source_buffer read_source_buffer ]
 
   let single_read t dst =
-    let avail, src = Cstruct.fillv ~dst ~src:!t in
+    let avail, src = Bstruct.fillv ~dst ~src:!t in
     if avail = 0 then raise End_of_file;
     t := src;
     avail
@@ -131,8 +131,8 @@ module String_source = struct
 
   let single_read t dst =
     if t.offset = String.length t.s then raise End_of_file;
-    let len = min (Cstruct.length dst) (String.length t.s - t.offset) in
-    Cstruct.blit_from_string t.s t.offset dst 0 len;
+    let len = min (Bstruct.length dst) (String.length t.s - t.offset) in
+    Bytes.blit_string t.s t.offset dst.buffer 0 len;
     t.offset <- t.offset + len;
     len
 
@@ -155,7 +155,7 @@ let write (Resource.T (t, ops)) bufs =
     | [] -> ()
     | bufs ->
       let wrote = X.single_write t bufs in
-      aux (Cstruct.shiftv bufs wrote)
+      aux (Bstruct.shiftv bufs wrote)
   in
   aux bufs
 
@@ -170,7 +170,7 @@ module Buffer_sink = struct
 
   let single_write t bufs =
     let old_length = Buffer.length t in
-    List.iter (fun buf -> Buffer.add_bytes t (Cstruct.to_bytes buf)) bufs;
+    List.iter (fun (buf : Bstruct.t) -> Buffer.add_bytes t (Bytes.sub buf.buffer buf.off buf.len)) bufs;
     Buffer.length t - old_length
 
   let copy t ~src = Pi.simple_copy ~single_write t ~src

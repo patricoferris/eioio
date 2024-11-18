@@ -23,7 +23,7 @@ let usage_error () =
   exit 1
 
 let () =
-  Eio_main.run @@ fun env ->
+  Eio_posix.run @@ fun env ->
   traceln "Using %s backend" env#backend_id;
   let benchmarks =
     match Array.to_list Sys.argv with
