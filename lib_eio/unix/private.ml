@@ -41,3 +41,10 @@ let chown_unix ~flags ~uid ~gid fd path =
 
 let chown ~flags ~uid ~gid fd path =
   Fd.use_exn "chown" fd (fun fd -> chown_unix ~uid ~gid ~flags fd path)
+
+external eio_fchmodat : Unix.file_descr -> string -> int -> int -> unit = "eio_unix_fchmodat"
+
+let chmod_unix fd path ~flags ~mode = eio_fchmodat fd path mode flags
+
+let chmod fd path ~flags ~mode =
+  Fd.use_exn "chmod" fd (fun fd -> chmod_unix ~flags ~mode fd path)

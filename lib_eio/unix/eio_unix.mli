@@ -110,6 +110,9 @@ module Private : sig
 
   val chown : flags:int -> uid:int64 -> gid:int64 -> Fd.t -> string -> unit
   val chown_unix : flags:int -> uid:int64 -> gid:int64 -> Unix.file_descr -> string -> unit
+
+  val chmod : Fd.t -> string -> flags:int -> mode:int -> unit
+  val chmod_unix : Unix.file_descr -> string -> flags:int -> mode:int -> unit
 end
 
 module Pi = Pi
