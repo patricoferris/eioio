@@ -78,7 +78,7 @@ CAMLprim value eio_unix_fchownat(value v_fd, value v_path, value v_uid, value v_
 
 CAMLprim value eio_unix_fchmodat(value v_fd, value v_path, value v_mode, value v_flags) {
 #ifdef _WIN32
-  caml_unix_error(EOPNOTSUPP, "fchownat not supported on Windows", v_path);
+  caml_unix_error(EOPNOTSUPP, "fchmodat not supported on Windows", v_path);
 #else
   CAMLparam1(v_path);
   char *path;
